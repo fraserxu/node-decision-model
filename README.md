@@ -267,3 +267,10 @@ The same workflow can be started by hand from the Actions tab or with
 ## License
 
 MIT
+
+## Relationship to ruby_decision_model
+
+A port of [ruby_decision_model](https://github.com/obie/ruby_decision_model),
+keeping its design and semantics. The main differences are idiomatic camelCase
+options, durations in milliseconds, and answer types inferred from your
+questions in TypeScript.

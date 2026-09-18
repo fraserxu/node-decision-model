@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1
+
+- README: document the relationship to `ruby_decision_model` and what differs in the port.
+
 ## 0.1.0
 
 Initial release. A Node.js port of [ruby_decision_model](https://github.com/obie/ruby_decision_model).
