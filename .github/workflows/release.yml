@@ -1,7 +1,10 @@
 # Publishes to npm through trusted publishing (OIDC), so no npm token is
 # stored anywhere. One-time setup on npmjs.com: package settings ->
 # Trusted publisher -> GitHub Actions, with this repository and the
-# workflow filename "release.yml". A version already on npm is skipped, so
+# workflow filename "release.yml", and under "Allowed actions" tick
+# "Allow npm publish" (only "npm stage publish" is allowed by default, and
+# the publish step then fails with "OIDC permission denied for this
+# action"). A version already on npm is skipped, so
 # the workflow is safe to re-run. Trusted publishing needs npm >= 11.5.1,
 # which is why the job runs on Node 24 (Node 22 bundles npm 10).
 name: Release
