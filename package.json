@@ -10,7 +10,8 @@
     "system-one",
     "classification",
     "probability",
-    "ai"
+    "ai",
+    "cli"
   ],
   "license": "MIT",
   "author": "Fraser Xu",
@@ -33,6 +34,9 @@
       "require": "./dist/index.cjs"
     }
   },
+  "bin": {
+    "decision-model": "./dist/cli.js"
+  },
   "files": [
     "dist",
     "CHANGELOG.md"
@@ -42,7 +46,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "tsup",
+    "build": "node -e \"fs.rmSync('dist', { recursive: true, force: true })\" && tsup",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
