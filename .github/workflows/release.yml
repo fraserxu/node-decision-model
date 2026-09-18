@@ -2,7 +2,8 @@
 # stored anywhere. One-time setup on npmjs.com: package settings ->
 # Trusted publisher -> GitHub Actions, with this repository and the
 # workflow filename "release.yml". A version already on npm is skipped, so
-# the workflow is safe to re-run.
+# the workflow is safe to re-run. Trusted publishing needs npm >= 11.5.1,
+# which is why the job runs on Node 24 (Node 22 bundles npm 10).
 name: Release
 
 on:
@@ -21,7 +22,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           registry-url: https://registry.npmjs.org
           cache: npm
       - run: npm ci
