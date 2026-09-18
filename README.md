@@ -13,7 +13,7 @@ providers as labs ship them. No runtime dependencies; Node 20+.
 | Install             | `npm install node-decision-model`                                                         |
 | Auth                | `TYPESAFE_API_KEY` or `OPENROUTER_API_KEY` in the environment                             |
 | Library entry point | `new Client().ask({ state, questions })`                                                  |
-| CLI entry point     | `npx decision-model ask "<state>" --noul id="…" --json`                                   |
+| CLI entry point     | `npx decision-model yesno "Is this urgent?" -f issue.json`                                |
 | Question types      | `noul` (yes/no), `choice` (pick one of up to 255 labels), `score` (2 to 10 rubric levels) |
 | Answers             | Calibrated probabilities, keyed by the question ids you passed                            |
 | Module formats      | ESM and CommonJS, with TypeScript types                                                   |
@@ -73,32 +73,64 @@ The package installs a `decision-model` executable. It reads the same
 environment variables as `new Client()` and is the quickest way to ask a
 question from a shell, a script, or an agent tool call.
 
+One question is a verb. The question is the first argument and the labels
+follow it, so nothing needs quoting beyond the question text:
+
 ```bash
-npx decision-model ask "Server returns 500 on checkout" \
+cat issue.json | npx decision-model yesno "Is this urgent?"
+npx decision-model choose "Which team owns this?" billing auth infra -f issue.json
+npx decision-model score "How severe is this?" cosmetic minor major critical -s "500 on checkout"
+```
+
+```
+yes  96%
+jev-1.13.0 · 300 in / 20 out tokens · 0.8s · req_01a0b6e2
+
+billing  66%  infra 33% · auth 1%
+jev-1.13.0 · 329 in / 38 out tokens · 1.0s · req_01a0b6e2
+
+critical  89%  2.89 on a 0–3 scale · major 11%
+jev-1.13.0 · 320 in / 33 out tokens · 1.1s · req_01a0b6e2
+```
+
+Several questions at once go through `ask`, where each question has an id
+that names its answer:
+
+```bash
+npx decision-model ask -f issue.json \
   --noul urgent="Is this urgent?" \
   --choice team="Which team owns this?|billing,auth,infra" \
   --score severity="How severe is this?|cosmetic,minor,major,critical"
 ```
 
 ```
-urgent    noul    0.870
-team      choice  infra  confidence 0.620
-severity  score   2.400  confidence 0.550
-
-model: typesafe/jev-1.13  id: resp_42  tokens: 120 in / 9 out  cost: 0.0012
+urgent    yes       96%
+team      billing   74%  infra 25% · auth 1%
+severity  critical  99%  2.99 on a 0–3 scale
+jev-1.13.0 · 384 in / 68 out tokens · 0.9s · req_01a0b6e2
 ```
+
+Every answer line reads the same way: the answer, its probability, then
+detail. A yes/no answer is `yes` or `no`, split at 0.5 unless `--threshold`
+moves the cut. A choice shows the chosen label and the runners-up. A score
+shows the level nearest the numeric score, with the score itself in the
+detail. `-v` adds every option's probability under each answer, with bars
+when stdout is a terminal.
 
 ### Passing the state
 
-| Form                             | Meaning                                |
-| -------------------------------- | -------------------------------------- |
-| `ask "text"` or `--state "text"` | Sent as text                           |
-| `--json-state`                   | Parse the state as JSON before sending |
-| `@path`                          | Read the state from a file             |
-| `@-`                             | Read the state from stdin              |
-| no state given                   | stdin is read if it is piped           |
+| Form                 | Meaning                                                  |
+| -------------------- | -------------------------------------------------------- |
+| `-s, --state <text>` | Sent as text. `ask` also takes it as its first argument  |
+| `-f, --file <path>`  | Read from a file. A `.json` file is parsed as JSON       |
+| `-f -`               | Read from stdin                                          |
+| `--json-state`       | Parse the state as JSON wherever it came from            |
+| nothing              | stdin is read when it is piped                           |
 
-### Passing questions
+A state larger than about 100 KB must come from a file or stdin; the
+operating system caps a single argument.
+
+### Passing questions to `ask`
 
 Flags are repeatable and at least one question is required.
 
@@ -107,11 +139,12 @@ Flags are repeatable and at least one question is required.
 | `--noul id="instructions"`                    | one string                 | A yes/no question                             |
 | `--choice id="instructions\|label,label,..."` | last `\|` separates labels | Pick one label                                |
 | `--score id="instructions\|level,level,..."`  | last `\|` separates levels | Place the state on an ordered rubric          |
-| `--questions '<json>'`, `@path`, `@-`         | wire-format map            | Any question, including criteria descriptions |
+| `--questions <file\|json\|->`                 | wire-format map            | Any question, including criteria descriptions |
+| `--input <file\|->`                           | `{ state, questions }`     | A whole request in one document               |
 
-`--questions` is merged with the flags and validated the same way. Use it
-when a label needs a description or the instructions are not a plain string.
-The wire format is:
+`--questions` takes a path, inline JSON (anything starting with `{`), or `-`
+for stdin, and is merged with the flags. Use it when a label needs a
+description or the instructions are not a plain string. The wire format is:
 
 ```json
 {
@@ -133,58 +166,98 @@ The wire format is:
 }
 ```
 
+`--input` carries the state and the questions together and cannot be
+combined with any other input. It is the form to use from a program or an
+agent: one JSON document in, one out, and nothing to quote.
+
 ```bash
-cat issue.json | decision-model ask --json-state --questions @questions.json --json
+decision-model ask --input - --json <<'EOF'
+{ "state": { "title": "500 on checkout" },
+  "questions": { "urgent": { "type": "noul", "instructions": "Is this urgent?" } } }
+EOF
 ```
 
-### Output and options
+### Scripting
 
-`--json` prints a JSON object for piping into `jq` or parsing in a program:
+`-q` prints only the answer: `yes` or `no`, the label, or the level. With
+`ask`, each line is the id, a tab, and the answer.
+
+`yesno --check` prints nothing and answers with the exit status, like
+`grep -q`: 0 for yes, 1 for no, 2 for a usage error, and 3 when the request
+failed.
+
+```bash
+decision-model yesno --check "Is this spam?" -s "$body" || deliver "$body"
+team=$(decision-model choose -q "Which team?" billing auth infra -f issue.json)
+```
+
+`--json` prints the response for `jq` or a program. The answers keep the
+shape the library returns; the single-question commands use the id `answer`.
 
 ```json
 {
-  "id": "resp_42",
-  "model": "typesafe/jev-1.13",
-  "requestId": null,
-  "usage": { "inputTokens": 120, "outputTokens": 9, "cost": 0.0012 },
+  "provider": "typesafe",
+  "model": "jev-1.13.0",
+  "id": null,
+  "requestId": "req_01a0b6e2ca017972bbd20352d6b866bd",
+  "elapsedMs": 827,
+  "usage": { "inputTokens": 281, "outputTokens": 20, "cost": null },
   "answers": {
-    "urgent": {
-      "type": "noul",
-      "noul": 0.87,
-      "probabilities": { "true": 0.87, "false": 0.13 }
-    },
+    "urgent": { "type": "noul", "noul": 0.96, "probabilities": {} },
     "team": {
       "type": "choice",
-      "choice": "infra",
-      "confidence": 0.62,
-      "probabilities": { "billing": 0.2, "auth": 0.18, "infra": 0.62 }
+      "choice": "billing",
+      "confidence": 0.74,
+      "probabilities": { "billing": 0.74, "auth": 0.01, "infra": 0.25 }
     },
     "severity": {
       "type": "score",
-      "score": 2.4,
-      "confidence": 0.55,
-      "probabilities": { "0": 0.05, "1": 0.1, "2": 0.3, "3": 0.55 },
+      "score": 2.99,
+      "confidence": 0.99,
+      "probabilities": { "0": 0, "1": 0, "2": 0.01, "3": 0.99 },
       "legend": { "0": "cosmetic", "1": "minor", "2": "major", "3": "critical" }
     }
   }
 }
 ```
 
-| Flag                | Meaning                                                        |
-| ------------------- | -------------------------------------------------------------- |
-| `--json`            | Print the response as JSON                                     |
-| `-v`, `--verbose`   | Also print the probability of every option in the human output |
-| `--provider <name>` | `open-router` or `typesafe`. Default: from the environment     |
-| `--model <name>`    | Model name or alias. Default: the provider default             |
-| `--base-url <url>`  | Override the provider base URL                                 |
-| `--timeout <ms>`    | Per-attempt timeout in milliseconds. Default: 5000             |
-| `--max-retries <n>` | Retries after the first attempt. Default: 2                    |
+Under `--json` a failure is one JSON line on stderr, and the exit code is
+unchanged:
+
+```json
+{ "error": { "type": "Unauthorized", "message": "unauthorized (status 401)", "status": 401, "requestId": "req_…", "retryable": false } }
+```
+
+`--dry-run` validates everything, prints the request that would be sent,
+and exits without calling the API. It needs no API key, so a program can
+check the shape of its questions for free.
+
+### Every flag
+
+| Flag                | Meaning                                                                                     |
+| ------------------- | ------------------------------------------------------------------------------------------- |
+| `-q, --quiet`       | Print only the answer                                                                       |
+| `-v, --verbose`     | Print every option's probability, with bars in a terminal                                   |
+| `--json`            | Print the response as JSON; a failure becomes a JSON error on stderr                        |
+| `--dry-run`         | Print the request and exit without sending it                                               |
+| `--no-color`        | Plain text even in a terminal. `NO_COLOR` does the same; `FORCE_COLOR` forces colour        |
+| `--threshold <p>`   | `yesno` only: where yes becomes no. Default 0.5                                             |
+| `--check`           | `yesno` only: print nothing; exit 0 for yes and 1 for no                                    |
+| `--provider <name>` | `open-router` or `typesafe`. Default: from the environment                                  |
+| `--model <name>`    | Model name or alias. Default: the provider default                                          |
+| `--base-url <url>`  | Override the provider base URL                                                              |
+| `--timeout <ms>`    | Per-attempt timeout in milliseconds. Default: 5000                                          |
+| `--max-retries <n>` | Retries after the first attempt. Default: 2                                                 |
+
+Colour and bars appear only when stdout is a terminal, so piped output and
+logs stay plain. Nothing ever prompts.
 
 Other commands:
 
 ```bash
-decision-model providers   # list providers, their env vars, and which one would be used
-decision-model help ask    # every option of ask
+decision-model providers      # list providers; the active one is marked
+decision-model providers -v   # also show each endpoint URL
+decision-model help all       # every command, option, and format on one screen
 decision-model --version
 ```
 
@@ -192,9 +265,10 @@ Exit status:
 
 | Code | Meaning                                                                     |
 | ---- | --------------------------------------------------------------------------- |
-| 0    | Success                                                                     |
-| 1    | The request failed. The error class, status, and body are printed to stderr |
+| 0    | Success. With `--check`: the answer is yes                                  |
+| 1    | The request failed; the error is on stderr. With `--check`: the answer is no |
 | 2    | Usage or configuration error                                                |
+| 3    | With `--check` only: the request failed                                     |
 
 ## Questions and answers
 

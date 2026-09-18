@@ -17,7 +17,9 @@ async function readStdin(): Promise<string> {
 }
 
 process.exitCode = await run(process.argv.slice(2), {
-  stdout: process.stdout,
+  stdout: { write: (chunk) => process.stdout.write(chunk), isTTY: process.stdout.isTTY === true },
   stderr: process.stderr,
   stdin: { isTTY: process.stdin.isTTY === true, read: readStdin },
+  env: process.env,
+  now: () => performance.now(),
 });
