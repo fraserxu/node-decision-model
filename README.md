@@ -50,6 +50,52 @@ Both ESM and CommonJS are supported:
 const { Client, noul } = require("node-decision-model");
 ```
 
+## Command line
+
+The package also installs a `decision-model` executable, so the same
+questions can be asked from a shell or a script. It reads the same environment
+variables as `new Client()`.
+
+```bash
+npx decision-model ask "Server returns 500 on checkout" \
+  --noul urgent="Is this urgent?" \
+  --choice team="Which team owns this?|billing,auth,infra" \
+  --score severity="How severe is this?|cosmetic,minor,major,critical"
+```
+
+```
+urgent    noul    0.870
+team      choice  infra  confidence 0.620
+severity  score   2.400  confidence 0.550
+
+model: typesafe/jev-1.13  id: resp_42  tokens: 120 in / 9 out  cost: 0.0012
+```
+
+The state is the positional argument (or `--state`). It is sent as text;
+`--json-state` parses it as JSON first. `@path` reads it from a file and `@-`
+from stdin, and when no state is given at all, stdin is read if it is piped.
+
+Questions come from repeatable flags. `--noul id=instructions` asks a yes/no
+question; `--choice` and `--score` take `id=instructions|label,label,...`,
+where the last `|` separates the instructions from the comma-separated labels
+or rubric levels. For criteria descriptions or non-string instructions, pass
+a questions map in the wire format with `--questions '<json>'`, `@path`, or
+`@-`; it is merged with the flags and the same validation applies.
+
+```bash
+cat issue.json | decision-model ask --json-state --questions @questions.json --json
+```
+
+`--json` prints `id`, `model`, `requestId`, `usage`, and `answers` as JSON for
+piping into `jq`. `--verbose` adds the probability of every option under each
+answer. `--provider`, `--model`, `--base-url`, `--timeout`, and
+`--max-retries` map to the client options of the same names.
+
+`decision-model providers` lists the providers, their environment variables,
+and which one would be used. Exit status is 0 on success, 1 when the request
+failed (the error class, status, and body are printed to stderr), and 2 for a
+usage or configuration error. `decision-model help ask` shows every option.
+
 ## Providers
 
 ### OpenRouter (default)
@@ -246,8 +292,9 @@ npm install
 npm test          # vitest, including type-level tests
 npm run lint
 npm run typecheck
-npm run build     # ESM + CJS + .d.ts into dist/
+npm run build     # ESM + CJS + .d.ts into dist/, plus the dist/cli.js executable
 npm run smoke     # one live request through dist/, reads .env (see .env.example)
+node dist/cli.js providers   # try the CLI from a checkout after building
 ```
 
 ## Releasing
