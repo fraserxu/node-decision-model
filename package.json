@@ -35,7 +35,7 @@
     }
   },
   "bin": {
-    "decision-model": "./dist/cli.js"
+    "decision-model": "dist/cli.js"
   },
   "files": [
     "dist",
