@@ -1,8 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
 
 - Add a `decision-model` command line: `ask` sends a state and `--noul`, `--choice`, `--score`, or `--questions` to a decision model and prints a table or `--json`; `providers` lists providers and which one the environment selects. Built on Node's `parseArgs`, so the package still has no runtime dependencies.
+- README: add an at-a-glance table, document the CLI state and question forms, the `--questions` wire format, the `--json` output shape, and exit codes; drop the `ruby_decision_model` sections.
 
 ## 0.1.1
 
