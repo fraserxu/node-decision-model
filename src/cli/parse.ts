@@ -493,6 +493,9 @@ export function parseInputJson(text: string): { state: unknown; questions: Quest
   if (!("state" in parsed)) {
     throw new UsageError('--input is missing "state"');
   }
+  if (parsed.state === null) {
+    throw new UsageError('--input "state" must not be null', ['Use "" or {} to ask with no state.']);
+  }
   if (!("questions" in parsed)) {
     throw new UsageError('--input is missing "questions"');
   }

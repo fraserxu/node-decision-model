@@ -14,9 +14,11 @@ Commands:
   providers                           List providers and which one is configured
   help [command | all]                Help for a command; 'help all' prints everything
 
-The state comes from -s <text>, -f <path>, or stdin when it is piped.
+The state comes from -s <text>, -f <path>, or stdin when it is piped. It is
+optional: with none, the model answers from what it already knows.
 
 Examples:
+  ${PROGRAM} choose "The toilet paper roll goes:" over under
   cat issue.json | ${PROGRAM} yesno "Is this urgent?"
   ${PROGRAM} choose "Which team owns this?" billing auth infra -f issue.json
   ${PROGRAM} score "How severe is this?" cosmetic minor major critical -s "500 on checkout"
@@ -30,11 +32,13 @@ Typesafe, otherwise OPENROUTER_API_KEY selects OpenRouter.
 `;
 
 const COMMON = `
-State (one of; when none is given, stdin is read if it is piped):
+State (optional; when none is given, stdin is read if it is piped):
   -s, --state <text>       The state as text
   -f, --file <path>        Read the state from a file, or from stdin with "-".
                            A .json file is parsed as JSON.
       --json-state         Parse the state as JSON wherever it came from
+  With no state at all the question is asked about an empty state and the
+  model answers from what it already knows.
   A state over about 100 KB must come from -f or stdin; the OS caps one argument.
 
 Client:

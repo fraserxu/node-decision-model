@@ -34,7 +34,7 @@ class FakeIo implements CliIo {
   ) {
     this.stdout = { write: (chunk: string) => (this.out += chunk), isTTY: options.tty === true };
     const text = options.stdin;
-    this.stdin = { isTTY: text === undefined, read: async () => text ?? "" };
+    this.stdin = { piped: text !== undefined, read: async () => text ?? "" };
     this.env = options.env ?? {};
     if (options.transport !== undefined) {
       this.clientOptions = { apiKey: "test-key", transport: options.transport.call };
@@ -193,6 +193,7 @@ describe("parseInputJson", () => {
     expect(() => parseInputJson('{"questions": {}}')).toThrow(/missing "state"/);
     expect(() => parseInputJson('{"state": 1}')).toThrow(/missing "questions"/);
     expect(() => parseInputJson('{"state": 1, "questions": []}')).toThrow(/--input "questions" must be a JSON object/);
+    expect(() => parseInputJson('{"state": null, "questions": {}}')).toThrow(/--input "state" must not be null/);
   });
 });
 
@@ -644,17 +645,18 @@ describe("run", () => {
       expect(await stateSentBy(["yesno", "Q?", "-f", "-", "--json-state"], '{"a": 1}')).toEqual({ a: 1 });
     });
 
-    it("reads piped stdin when no state is given, and requires one at a terminal", async () => {
+    it("reads piped stdin when no state is given, and sends an empty state otherwise", async () => {
       expect(await stateSentBy(["yesno", "Q?"], "piped")).toBe("piped");
       const transport = new FakeTransport([[200, fullBody]]);
       expect(await run(["ask", ...questionFlags, "--json-state"], new FakeIo({ transport, stdin: '{"title": "piped"}\n' }))).toBe(0);
       expect(JSON.parse(transport.requests[0]!.body).state).toEqual({ title: "piped" });
 
-      const io = new FakeIo({ transport: new FakeTransport([]) });
-      expect(await run(["yesno", "Q?"], io)).toBe(2);
-      expect(io.err).toBe(
-        "decision-model: a state is required\n  Pass it with -s <text>, -f <path>, or pipe it on stdin.\n  Run 'decision-model help yesno' for usage.\n"
-      );
+      const bare = new FakeTransport([[200, singleBody(answers.team)]]);
+      const io = new FakeIo({ transport: bare });
+      expect(await run(["choose", "The toilet paper roll goes:", "over", "under"], io)).toBe(0);
+      expect(JSON.parse(bare.requests[0]!.body).state).toBe("");
+      expect(io.err).toBe("");
+      expect(io.out).toMatch(/^infra  62%/);
     });
 
     it("still accepts @path and @- as the ask positional", async () => {

@@ -127,8 +127,22 @@ when stdout is a terminal.
 | `--json-state`       | Parse the state as JSON wherever it came from            |
 | nothing              | stdin is read when it is piped                           |
 
-A state larger than about 100 KB must come from a file or stdin; the
-operating system caps a single argument.
+The state is optional. With none at all, the question is asked about an
+empty state and the model answers from what it already knows, so a
+general-knowledge question needs nothing but the question:
+
+```bash
+decision-model choose "The toilet paper roll goes:" over under
+```
+
+```
+over  75%  under 25%
+```
+
+Stdin is read only when it is a pipe or a redirected file, so the command
+never waits for input at a terminal or in a shell that leaves stdin open
+without writing to it. A state larger than about 100 KB must come from a
+file or stdin; the operating system caps a single argument.
 
 ### Passing questions to `ask`
 

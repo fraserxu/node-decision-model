@@ -42,7 +42,8 @@ export interface CliIo {
   stdout: { write(chunk: string): unknown; isTTY?: boolean };
   stderr: { write(chunk: string): unknown };
   stdin: {
-    isTTY: boolean;
+    /** True when data is arriving on stdin: a pipe or a redirected file. */
+    piped: boolean;
     /** Resolves with everything on stdin once it closes. */
     read(): Promise<string>;
   };
@@ -240,15 +241,16 @@ class InputReader {
     return this.io.stdin.read();
   }
 
-  get stdinIsTerminal(): boolean {
-    return this.io.stdin.isTTY;
+  get stdinIsPiped(): boolean {
+    return this.io.stdin.piped;
   }
 }
 
 /**
  * The state comes from `-s`, the positional (ask only), `-f`, or piped
- * stdin, in that order. A positional `@path` or `@-` means `-f` for
- * compatibility with 0.2.
+ * stdin, in that order. With none of those the state is empty, which the
+ * API accepts: the model answers from its priors. A positional
+ * `@path` or `@-` means `-f` for compatibility with 0.2.
  */
 async function resolveState(
   options: CommonOptions,
@@ -265,12 +267,10 @@ async function resolveState(
   } else if (file !== undefined) {
     text = await inputs.pathOrStdin(file, "--file");
     parseJson ||= file !== "-" && file.toLowerCase().endsWith(".json");
-  } else if (!inputs.stdinIsTerminal) {
+  } else if (inputs.stdinIsPiped) {
     text = await inputs.stdin("state");
   } else {
-    throw new UsageError("a state is required", [
-      "Pass it with -s <text>, -f <path>, or pipe it on stdin.",
-    ]);
+    text = "";
   }
 
   if (!parseJson) return text;
