@@ -11,7 +11,7 @@ providers as labs ship them. No runtime dependencies; Node 20+.
 |                     |                                                                                           |
 | ------------------- | ----------------------------------------------------------------------------------------- |
 | Install             | `npm install node-decision-model`                                                         |
-| Auth                | `TYPESAFE_API_KEY` or `OPENROUTER_API_KEY` in the environment                             |
+| Auth                | `TYPESAFE_API_KEY` or `OPENROUTER_API_KEY` in the environment, for the library and the CLI |
 | Library entry point | `new Client().ask({ state, questions })`                                                  |
 | CLI entry point     | `npx decision-model yesno "Is this urgent?" -f issue.json`                                |
 | Question types      | `noul` (yes/no), `choice` (pick one of up to 255 labels), `score` (2 to 10 rubric levels) |
@@ -69,9 +69,23 @@ const { Client, noul } = require("node-decision-model");
 
 ## Command line
 
-The package installs a `decision-model` executable. It reads the same
-environment variables as `new Client()` and is the quickest way to ask a
-question from a shell, a script, or an agent tool call.
+The package installs a `decision-model` executable. It is the quickest way
+to ask a question from a shell, a script, or an agent tool call.
+
+It needs an API key in the environment: `TYPESAFE_API_KEY` for Typesafe or
+`OPENROUTER_API_KEY` for OpenRouter. Typesafe wins when both are set, and
+`--provider` picks one explicitly. `decision-model providers` shows which
+keys are set and which provider will be used.
+
+```bash
+export TYPESAFE_API_KEY=...
+npx decision-model yesno "Is apple healthy?"
+```
+
+```
+yes  93%
+jev-1.13.0 · 270 in / 20 out tokens · 0.9s · req_01a0b6f6
+```
 
 One question is a verb. The question is the first argument and the labels
 follow it, so nothing needs quoting beyond the question text:

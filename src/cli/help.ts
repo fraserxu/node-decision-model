@@ -5,6 +5,7 @@ export const PROGRAM = "decision-model";
 const MAIN = `Usage: ${PROGRAM} <command> [options]
 
 Ask a decision model typed questions about a state from the shell.
+Needs TYPESAFE_API_KEY or OPENROUTER_API_KEY in the environment.
 
 Commands:
   yesno  "<question>"                 A yes/no question
@@ -41,7 +42,7 @@ State (optional; when none is given, stdin is read if it is piped):
   model answers from what it already knows.
   A state over about 100 KB must come from -f or stdin; the OS caps one argument.
 
-Client:
+Client (needs TYPESAFE_API_KEY or OPENROUTER_API_KEY in the environment):
       --provider <name>    open-router or typesafe. Default: from the environment
       --model <name>       Model name or alias. Default: the provider default
       --base-url <url>     Override the provider base URL
