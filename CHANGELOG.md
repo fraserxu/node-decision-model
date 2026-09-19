@@ -5,7 +5,7 @@
 - The state is optional. With no `-s`, `-f`, or piped stdin, the question is asked about an empty state and the model answers from what it already knows, so `decision-model yesno "Is apple healthy?"` needs nothing else.
 - Stdin is read implicitly only when it is a pipe or a redirected file. A terminal, `/dev/null`, or a shell that leaves stdin open without writing to it no longer blocks the command.
 - A `null` state in `--input` is a usage error, because the API rejects it. `""` and `{}` are accepted.
-- Help and the README say up front that the CLI needs `TYPESAFE_API_KEY` or `OPENROUTER_API_KEY` in the environment.
+- README: the command-line section says up front that the CLI needs `TYPESAFE_API_KEY` or `OPENROUTER_API_KEY` in the environment.
 
 ## 0.3.0
 
