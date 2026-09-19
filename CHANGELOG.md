@@ -1,12 +1,19 @@
 # Changelog
 
+## 0.3.1
+
+- The state is optional. With no `-s`, `-f`, or piped stdin, the question is asked about an empty state and the model answers from what it already knows, so `decision-model yesno "Is apple healthy?"` needs nothing else.
+- Stdin is read implicitly only when it is a pipe or a redirected file. A terminal, `/dev/null`, or a shell that leaves stdin open without writing to it no longer blocks the command.
+- A `null` state in `--input` is a usage error, because the API rejects it. `""` and `{}` are accepted.
+- README: the command-line section says up front that the CLI needs `TYPESAFE_API_KEY` or `OPENROUTER_API_KEY` in the environment.
+
 ## 0.3.0
 
 A friendlier command line. The library is unchanged.
 
 - Add `yesno`, `choose`, and `score` commands for one question. The question is the first argument and the labels follow it, so nothing needs quoting beyond the question text and labels may contain spaces.
 - Answers read as answers: `yes 96%`, `billing 66%  infra 33% · auth 1%`, `critical 99%  2.99 on a 0–3 scale`. Percentages replace three-decimal probabilities, a score shows the level it landed on, and the type column is gone. `-v` prints every option's probability with bars in a terminal.
-- State comes from `-s <text>`, `-f <path>` (a `.json` file is parsed), `-f -`, or piped stdin, and is optional: with none, the question is asked about an empty state. Stdin is read implicitly only when it is a pipe or a redirected file, so the command never blocks on an open but silent stdin. The `ask` positional and `@path`/`@-` still work but are no longer documented.
+- State comes from `-s <text>`, `-f <path>` (a `.json` file is parsed), `-f -`, or piped stdin. The `ask` positional and `@path`/`@-` still work but are no longer documented.
 - Scripting: `-q` prints only the answer; `yesno --check` exits 0 for yes and 1 for no with `--threshold` to move the cut; `--json` gains `provider` and `elapsedMs`.
 - Agent callers: `ask --input <file|->` takes one `{ state, questions }` document; under `--json` a failure is one JSON line on stderr with `type`, `message`, `status`, `requestId`, and `retryable`; `--dry-run` prints the request without sending it and needs no key; `help all` prints every command, option, and format on one screen.
 - `--questions` accepts a path, inline JSON, or `-` without the `@` prefix.
