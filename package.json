@@ -1,12 +1,15 @@
 {
   "name": "node-decision-model",
   "version": "0.3.1",
-  "description": "The decision-model interface for Node.js. Ask typed questions about a state and get calibrated probabilities back, via OpenRouter or Typesafe.",
+  "description": "The decision-model interface for Node.js. Ask typed questions about a state and get calibrated probabilities back, via OpenRouter, Typesafe, or Cloudflare Workers AI (Clef).",
   "keywords": [
     "decision-model",
     "typesafe",
     "jev",
     "openrouter",
+    "cloudflare",
+    "workers-ai",
+    "clef",
     "system-one",
     "classification",
     "probability",

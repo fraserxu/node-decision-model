@@ -35,7 +35,7 @@ export abstract class Provider {
   // instead. Read lazily because abstract getters are not available in the
   // base constructor.
   private providerApiKey: string | null;
-  private providerBaseUrl: string | null;
+  protected providerBaseUrl: string | null;
 
   constructor(options: ProviderOptions = {}) {
     this.providerApiKey = options.apiKey ?? null;
@@ -59,6 +59,11 @@ export abstract class Provider {
     return false;
   }
 
+  /** Response header that carries the provider's request id, compared case-insensitively. */
+  get requestIdHeader(): string {
+    return "x-typesafe-request-id";
+  }
+
   get apiKey(): string | null {
     return this.providerApiKey ?? process.env[this.envVar] ?? null;
   }
@@ -71,9 +76,24 @@ export abstract class Provider {
     return `${this.baseUrl}${this.endpointPath}`;
   }
 
+  /** The URL a request for `model` goes to. Most providers use one URL for every model. */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  urlFor(model: string): string {
+    return this.url;
+  }
+
   hasApiKey(): boolean {
     const key = this.apiKey;
     return key !== null && key.trim() !== "";
+  }
+
+  /**
+   * Why the provider cannot send a request even with an API key, or null when
+   * it can. The Client throws it as a ConfigurationError, and the environment
+   * only selects a provider that returns null.
+   */
+  missingConfiguration(): string | null {
+    return null;
   }
 
   /**
@@ -96,6 +116,14 @@ export abstract class Provider {
 
   requestBody(args: { model: string; state: unknown; questions: Questions }): string {
     return JSON.stringify({ model: args.model, state: args.state, questions: args.questions });
+  }
+
+  /**
+   * Returns the decision object inside a parsed response body. Override when
+   * the provider wraps it in an envelope.
+   */
+  unwrap(parsed: Record<string, unknown>): unknown {
+    return parsed;
   }
 
   usage(parsed: unknown): Usage {

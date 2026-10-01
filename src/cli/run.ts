@@ -316,6 +316,12 @@ function clientOptions(options: CommonOptions, io: CliIo): ClientOptions {
         `Run '${PROGRAM} providers' to see what is set.`,
       ]);
     }
+    const configured =
+      options.baseUrl === undefined ? provider : provider.configure({ baseUrl: options.baseUrl });
+    const missing = configured.missingConfiguration();
+    if (missing !== null) {
+      throw new UsageError(missing, [`Run '${PROGRAM} providers' to see what is set.`]);
+    }
     result.provider = provider;
   } else if (result.apiKey === undefined && providerFromEnv() === null) {
     throw new UsageError("no API key found", [
