@@ -1,3 +1,5 @@
+import { RequestError } from "../errors.js";
+import type { ImageSource } from "../images.js";
 import { VERSION } from "../version.js";
 import type { Questions, Usage } from "../types.js";
 
@@ -114,7 +116,16 @@ export abstract class Provider {
     };
   }
 
-  requestBody(args: { model: string; state: unknown; questions: Questions }): string {
+  requestBody(args: {
+    model: string;
+    state: unknown;
+    questions: Questions;
+    /** Local images. Only the Cloudflare Clef provider accepts them. */
+    images?: readonly ImageSource[];
+  }): string {
+    if (args.images != null && args.images.length > 0) {
+      throw new RequestError(`images are only supported by the cloudflare provider, not ${this.name}`);
+    }
     return JSON.stringify({ model: args.model, state: args.state, questions: args.questions });
   }
 

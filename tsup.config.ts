@@ -10,6 +10,9 @@ export default defineConfig([
     entry: ["src/index.ts"],
     format: ["esm", "cjs"],
     dts: true,
+    // src/version.ts locates package.json through import.meta.url, which
+    // esbuild leaves empty in CJS output; the shim fills it from __filename.
+    shims: true,
   },
   {
     ...shared,

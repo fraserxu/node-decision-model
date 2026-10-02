@@ -260,6 +260,7 @@ describe("parseArgv", () => {
         verbose: true,
         noColor: false,
         dryRun: false,
+        images: [],
       },
     });
   });
@@ -421,6 +422,7 @@ describe("run", () => {
     expect(await run(["--help"], help)).toBe(0);
     expect(help.out).toMatch(/^Usage: decision-model <command>/);
     expect(help.out).toContain('yesno  "<question>"');
+    expect(help.out).toContain("--image photo.jpg");
 
     const bare = new FakeIo();
     expect(await run([], bare)).toBe(2);
@@ -432,6 +434,7 @@ describe("run", () => {
     expect(ask.out).toMatch(/^Usage: decision-model ask/);
     expect(ask.out).toContain("--choice <id>=<instructions>|<label>,...");
     expect(ask.out).toContain("--input <file|->");
+    expect(ask.out).toContain("--image <path>");
 
     const all = new FakeIo();
     expect(await run(["help", "all"], all)).toBe(0);

@@ -34,6 +34,8 @@ export interface CommonOptions {
   verbose: boolean;
   noColor: boolean;
   dryRun: boolean;
+  /** `-i` / `--image`: local PNG, JPEG, or WebP files for Cloudflare Clef. */
+  images: string[];
 }
 
 export interface AskOptions extends CommonOptions {
@@ -88,6 +90,7 @@ const COMMON_OPTIONS = {
   verbose: { type: "boolean", short: "v", default: false },
   "no-color": { type: "boolean", default: false },
   "dry-run": { type: "boolean", default: false },
+  image: { type: "string", short: "i", multiple: true },
   help: { type: "boolean", short: "h", default: false },
 } as const;
 
@@ -126,6 +129,7 @@ interface CommonValues {
   verbose?: boolean | undefined;
   "no-color"?: boolean | undefined;
   "dry-run"?: boolean | undefined;
+  image?: string[] | undefined;
   help?: boolean | undefined;
 }
 
@@ -356,6 +360,7 @@ function commonOptions(values: CommonValues): CommonOptions {
     verbose: values.verbose === true,
     noColor: values["no-color"] === true,
     dryRun: values["dry-run"] === true,
+    images: values.image ?? [],
   };
 }
 

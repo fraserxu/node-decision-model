@@ -6,6 +6,7 @@ import {
   ConfigurationError,
   DecisionModelError,
   InvalidResponse,
+  RequestError,
   RetryPolicy,
   TransportError,
   providerEnvVars,
@@ -164,11 +165,22 @@ async function perform(
   io: CliIo,
   presentation: Presentation
 ): Promise<number> {
+  const images = options.images;
+
   if (options.dryRun) {
     const provider = providerForDryRun(options);
-    io.stdout.write(
-      formatDryRun({ provider, model: provider.resolveModel(options.model), ...request })
-    );
+    let printed: string;
+    try {
+      printed = formatDryRun({
+        provider,
+        model: provider.resolveModel(options.model),
+        ...request,
+        ...(images.length > 0 ? { images } : {}),
+      });
+    } catch (error) {
+      usageErrorForRequest(error);
+    }
+    io.stdout.write(printed);
     return EXIT_OK;
   }
 
@@ -176,7 +188,9 @@ async function perform(
   const now = io.now ?? (() => performance.now());
   const started = now();
   try {
-    const response = await client.ask(request);
+    const response = await client
+      .ask(images.length > 0 ? { ...request, images } : request)
+      .catch(usageErrorForRequest);
     const elapsedMs = Math.round(now() - started);
     const provider = client.provider.name;
 
@@ -343,6 +357,36 @@ function namedProvider(name: string): Provider {
     if (!(error instanceof ConfigurationError)) throw error;
     throw new UsageError(error.message, [`Run '${PROGRAM} providers' to list them.`]);
   }
+}
+
+/**
+ * A request the provider refuses to build (an unreadable or oversized
+ * --image, images for a provider without them, a body over the Clef cap) is
+ * a usage error, exit 2: it is found before anything is sent, and before a
+ * dry run prints a body the API would reject. Anything else is rethrown.
+ */
+function usageErrorForRequest(error: unknown): never {
+  if (error instanceof RequestError) {
+    throw new UsageError(error.message, requestHints(error.message));
+  }
+  throw error;
+}
+
+function requestHints(message: string): string[] {
+  if (message.includes("only supported by the cloudflare provider")) {
+    return [
+      "Pass --provider cloudflare, with CLOUDFLARE_AUTH_TOKEN and CLOUDFLARE_ACCOUNT_ID set.",
+      `Example: ${PROGRAM} yesno "What is in this photo?" --image photo.jpg --provider cloudflare`,
+    ];
+  }
+  if (message.includes("request body is")) {
+    return ["Clef accepts a request body of at most 13 MiB, images included."];
+  }
+  return [
+    "Pass a local PNG, JPEG, or WebP file. Remote URLs are not accepted.",
+    "Clef allows 4 images: 4 MiB and 16 megapixels each, 8 MiB total, and a 13 MiB request body.",
+    `Example: ${PROGRAM} yesno "What is in this photo?" --image photo.jpg`,
+  ];
 }
 
 /** A dry run needs no key, so it never goes through the Client constructor. */

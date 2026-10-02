@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.4.1
+
+- `decision-model --version` and the `User-Agent` (`node-decision-model/<version>`) are read from `package.json`, so they cannot drift from the published package version.
+- Cloudflare Clef and Clef-flash accept images. `ask({ images })` and `--image` / `-i` embed up to four local PNG, JPEG, or WebP files; Clef places them before the state. Remote URLs are rejected. Limits: 4 MiB and 16 megapixels each, 8 MiB of image bytes in total, and a 13 MiB request body.
+
 ## 0.4.0
 
 - Add a `cloudflare` provider for Cloudflare's [Clef decision models](https://blog.cloudflare.com/clef-decision-models/) on Workers AI. It reads `CLOUDFLARE_AUTH_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, defaults to `clef`, and takes `--model clef-flash` (or `model: "clef-flash"`) for the faster model. Each model posts to its own `@cf/cloudflare/<model>` URL, and the Workers AI `{ success, result }` envelope is unwrapped. The environment selects it after Typesafe and OpenRouter, and only when both variables are set.

@@ -1,4 +1,5 @@
 import { InvalidResponse } from "../errors.js";
+import { assertClefBodySize, encodeClefImages } from "../images.js";
 import { Provider, type ProviderOptions } from "./base.js";
 
 export interface CloudflareProviderOptions extends ProviderOptions {
@@ -29,8 +30,9 @@ function messagesFrom(errors: unknown): string {
 
 /**
  * Cloudflare's Clef decision models on Workers AI. The request body is the
- * Jev wire format; each model has its own URL under the account, and the REST
- * API wraps the decision in a `{ success, result, errors }` envelope.
+ * Jev wire format plus an optional `images` array of embedded PNG, JPEG, or
+ * WebP; each model has its own URL under the account, and the REST API wraps
+ * the decision in a `{ success, result, errors }` envelope.
  */
 export class CloudflareProvider extends Provider {
   private providerAccountId: string | null;
@@ -95,6 +97,27 @@ export class CloudflareProvider extends Provider {
       throw new InvalidResponse(`cloudflare reported failure${messagesFrom(parsed.errors)}`);
     }
     return parsed.result;
+  }
+
+  /**
+   * The Jev body plus Clef's `images` array. Images are embedded
+   * `{ content_type, base64 }` objects; the model places them before the
+   * state. Absent when no image was given, so a text request is unchanged.
+   */
+  override requestBody(args: Parameters<Provider["requestBody"]>[0]): string {
+    const images = args.images ?? [];
+    const payload =
+      images.length === 0
+        ? { model: args.model, state: args.state, questions: args.questions }
+        : {
+            model: args.model,
+            state: args.state,
+            questions: args.questions,
+            images: encodeClefImages(images),
+          };
+    const body = JSON.stringify(payload);
+    assertClefBodySize(body);
+    return body;
   }
 
   override configure(options: CloudflareProviderOptions): this {

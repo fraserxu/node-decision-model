@@ -55,3 +55,4 @@ export type {
   Usage,
 } from "./types.js";
 export { VERSION } from "./version.js";
+export type { ImageSource } from "./images.js";

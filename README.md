@@ -161,6 +161,20 @@ never waits for input at a terminal or in a shell that leaves stdin open
 without writing to it. A state larger than about 100 KB must come from a
 file or stdin; the operating system caps a single argument.
 
+### Passing an image
+
+Cloudflare Clef and Clef-flash can see a local photo. Repeat `-i` / `--image`
+for up to four PNG, JPEG, or WebP files. Remote URLs are not accepted, and
+other providers reject the flag.
+
+```bash
+decision-model yesno "Is the total legible?" --image receipt.jpg -s "Receipt from today"
+decision-model choose "What is this?" cat dog other -i photo.png -i photo2.jpg --provider cloudflare
+```
+
+Each image may be 4 MiB and 16 megapixels. Together they may be 8 MiB, and the
+whole request body 13 MiB.
+
 ### Passing questions to `ask`
 
 Flags are repeatable and at least one question is required.
@@ -265,20 +279,21 @@ check the shape of its questions for free.
 
 ### Every flag
 
-| Flag                | Meaning                                                                                     |
-| ------------------- | ------------------------------------------------------------------------------------------- |
-| `-q, --quiet`       | Print only the answer                                                                       |
-| `-v, --verbose`     | Print every option's probability, with bars in a terminal                                   |
-| `--json`            | Print the response as JSON; a failure becomes a JSON error on stderr                        |
-| `--dry-run`         | Print the request and exit without sending it                                               |
-| `--no-color`        | Plain text even in a terminal. `NO_COLOR` does the same; `FORCE_COLOR` forces colour        |
-| `--threshold <p>`   | `yesno` only: where yes becomes no. Default 0.5                                             |
-| `--check`           | `yesno` only: print nothing; exit 0 for yes and 1 for no                                    |
-| `--provider <name>` | `open-router`, `typesafe`, or `cloudflare`. Default: from the environment                   |
-| `--model <name>`    | Model name or alias. Default: the provider default                                          |
-| `--base-url <url>`  | Override the provider base URL                                                              |
-| `--timeout <ms>`    | Per-attempt timeout in milliseconds. Default: 5000                                          |
-| `--max-retries <n>` | Retries after the first attempt. Default: 2                                                 |
+| Flag                 | Meaning                                                                                     |
+| -------------------- | ------------------------------------------------------------------------------------------- |
+| `-q, --quiet`        | Print only the answer                                                                       |
+| `-v, --verbose`      | Print every option's probability, with bars in a terminal                                   |
+| `--json`             | Print the response as JSON; a failure becomes a JSON error on stderr                        |
+| `--dry-run`          | Print the request and exit without sending it                                               |
+| `--no-color`         | Plain text even in a terminal. `NO_COLOR` does the same; `FORCE_COLOR` forces colour        |
+| `--threshold <p>`    | `yesno` only: where yes becomes no. Default 0.5                                             |
+| `--check`            | `yesno` only: print nothing; exit 0 for yes and 1 for no                                    |
+| `--provider <name>`  | `open-router`, `typesafe`, or `cloudflare`. Default: from the environment                   |
+| `--model <name>`     | Model name or alias. Default: the provider default                                          |
+| `--base-url <url>`   | Override the provider base URL                                                              |
+| `--timeout <ms>`     | Per-attempt timeout in milliseconds. Default: 5000                                          |
+| `--max-retries <n>`  | Retries after the first attempt. Default: 2                                                 |
+| `-i, --image <path>` | Cloudflare Clef only: a local PNG, JPEG, or WebP file; repeatable, up to 4. No remote URLs   |
 
 Colour and bars appear only when stdout is a terminal, so piped output and
 logs stay plain. Nothing ever prompts.
@@ -415,6 +430,32 @@ whole body in `response.raw`, and throws `InvalidResponse` with Cloudflare's
 error messages when `success` is `false`. A body without the envelope is
 read as is. Usage reports `inputTokens` and `outputTokens`; `cost` is
 `null`. `response.requestId` is the `cf-ray` header.
+
+Clef and Clef-flash accept images. Pass `images` to `ask`: a local path, a
+`Uint8Array` of PNG, JPEG, or WebP bytes, or a `data:image/png;base64,...`
+URL (JPEG and WebP data URLs too). Remote URLs are not accepted. The request
+embeds each image as `{ "content_type", "base64" }`, and Clef places those
+images before the state. The limits match the
+[Clef schema](https://developers.cloudflare.com/workers-ai/models/clef/):
+4 images, 4 MiB and 16 megapixels each, 8 MiB of image bytes in total, and a
+13 MiB request body. The "total decoded" cap is the sum of those file bytes,
+not the expanded pixel buffer, so a normal photo under 16 megapixels gets
+through. Other providers throw `RequestError` if `images` is set. The CLI
+flag is `--image` / `-i`.
+
+```ts
+import { readFileSync } from "node:fs";
+
+const response = await client.ask({
+  state: "Receipt from today",
+  images: [readFileSync("receipt.jpg")], // or the path "receipt.jpg"
+  questions: { legible: noul("Is the total legible?") },
+});
+```
+
+```bash
+decision-model yesno "Is the total legible?" --image receipt.jpg -s "Receipt from today"
+```
 
 The environment selects Cloudflare only when both variables are set; with
 the token alone, `decision-model providers` shows the key as `incomplete`.
@@ -582,7 +623,9 @@ node dist/cli.js providers   # try the CLI from a checkout after building
 Publishing runs through npm trusted publishing (GitHub Actions OIDC), so no
 npm token is stored anywhere. To ship a version:
 
-1. Bump `version` in `package.json` and `VERSION` in `src/version.ts`.
+1. Bump `version` in `package.json` and the two `version` fields for this
+   package in `package-lock.json`. `--version` and the User-Agent read that
+   version from `package.json`; do not add a second copy.
 2. Add the version to `CHANGELOG.md`.
 3. Merge to `main`. The Release workflow runs the suite, builds, and publishes
    with provenance. A version already on npm is skipped, so the workflow is

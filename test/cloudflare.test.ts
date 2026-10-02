@@ -1,3 +1,6 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildProvider,
@@ -339,5 +342,106 @@ describe("CLI with Cloudflare", () => {
       expect(await run(["providers"], io)).toBe(0);
       expect(io.out).toMatch(/cloudflare\s+CLOUDFLARE_AUTH_TOKEN\s+clef\s+incomplete/);
     });
+  });
+});
+
+function onePixelPng(): Buffer {
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(1, 0);
+  ihdr.writeUInt32BE(1, 4);
+  ihdr[8] = 8;
+  ihdr[9] = 2;
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    Buffer.from([0x00, 0x00, 0x00, 0x0d]),
+    Buffer.from("IHDR"),
+    ihdr,
+    Buffer.alloc(4),
+  ]);
+}
+
+describe("CLI images for Clef", () => {
+  it("sends a local --image file to Clef", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "clef-cli-"));
+    const path = join(dir, "photo.png");
+    const bytes = onePixelPng();
+    writeFileSync(path, bytes);
+    const transport = new FakeTransport([[200, envelope(decision)]]);
+    await withEnv({ ...NO_ENV, CLOUDFLARE_ACCOUNT_ID: ACCOUNT }, async () => {
+      const io = new Io({ apiKey: "cf-token", transport: transport.call });
+      const code = await run(
+        ["ask", "-s", "a photo", "--noul", "urgent=Is this urgent?", "--image", path, "--provider", "cloudflare", "-q"],
+        io
+      );
+      expect(code).toBe(0);
+      expect(io.out).toBe("urgent\tyes\n");
+    });
+    const sent = JSON.parse(transport.requests[0]!.body) as {
+      state: string;
+      images: { content_type: string; base64: string }[];
+    };
+    expect(sent.state).toBe("a photo");
+    expect(sent.images).toEqual([{ content_type: "image/png", base64: bytes.toString("base64") }]);
+    expect(transport.requests[0]!.url).toBe(`${RUN_URL}/@cf/cloudflare/clef`);
+  });
+
+  it("shows the embedded image in a dry run", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "clef-cli-"));
+    const path = join(dir, "photo.png");
+    writeFileSync(path, onePixelPng());
+    await withEnv({ ...NO_ENV, CLOUDFLARE_ACCOUNT_ID: ACCOUNT }, async () => {
+      const io = new Io();
+      const code = await run(
+        ["yesno", "What is in this photo?", "-i", path, "--provider", "cloudflare", "--dry-run"],
+        io
+      );
+      expect(code).toBe(0);
+      const printed = JSON.parse(io.out) as { request: { images: { content_type: string }[] } };
+      expect(printed.request.images[0]!.content_type).toBe("image/png");
+    });
+  });
+
+  it("rejects a remote URL and images for other providers as usage errors", async () => {
+    await withEnv(NO_ENV, async () => {
+      const url = new Io();
+      expect(
+        await run(["yesno", "Q?", "--image", "https://example.com/a.png", "--provider", "cloudflare", "--dry-run"], url)
+      ).toBe(2);
+      expect(url.err).toMatch(/remote URLs are not accepted/);
+
+      const other = new Io();
+      expect(await run(["yesno", "Q?", "--image", "photo.png", "--dry-run"], other)).toBe(2);
+      expect(other.err).toMatch(/only supported by the cloudflare provider/);
+    });
+  });
+
+  it("reports an unreadable --image as a usage error before sending", async () => {
+    const transport = new FakeTransport([]);
+    await withEnv({ ...NO_ENV, CLOUDFLARE_ACCOUNT_ID: ACCOUNT }, async () => {
+      const io = new Io({ apiKey: "cf-token", transport: transport.call });
+      const code = await run(
+        ["yesno", "Q?", "--image", "/tmp/does-not-exist-clef-cli.png", "--provider", "cloudflare"],
+        io
+      );
+      expect(code).toBe(2);
+      expect(io.err).toMatch(/could not read file/);
+      expect(io.err).toMatch(/Pass a local PNG, JPEG, or WebP file/);
+    });
+    expect(transport.requests).toHaveLength(0);
+  });
+
+  it("posts images through the mocked fetch transport", async () => {
+    const bytes = onePixelPng();
+    const fetchMock = vi.fn(async () => new Response(envelope(decision), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new Client({
+      provider: new CloudflareProvider({ accountId: ACCOUNT }),
+      apiKey: "cf-token",
+    });
+    await client.ask({ state: "x", questions, images: [bytes] });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const init = (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1];
+    const sent = JSON.parse(String(init.body)) as { images: { content_type: string; base64: string }[] };
+    expect(sent.images[0]).toEqual({ content_type: "image/png", base64: bytes.toString("base64") });
   });
 });

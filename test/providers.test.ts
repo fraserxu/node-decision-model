@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   buildProvider,
@@ -58,6 +59,17 @@ describe("TypesafeProvider", () => {
   it("never reports cost even when the wire carries one", () => {
     const provider = new TypesafeProvider({ apiKey: "k" });
     expect(provider.usage({ usage: { input_tokens: 1, output_tokens: 2, cost: 9 } }).cost).toBeNull();
+  });
+});
+
+describe("VERSION", () => {
+  it("comes from package.json and is not hardcoded beside it", () => {
+    const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
+      version: string;
+    };
+    expect(VERSION).toBe(pkg.version);
+    const source = readFileSync(new URL("../src/version.ts", import.meta.url), "utf8");
+    expect(source).not.toMatch(/["']\d+\.\d+\.\d+["']/);
   });
 });
 

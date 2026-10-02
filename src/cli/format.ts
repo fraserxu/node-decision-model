@@ -1,4 +1,4 @@
-import type { Answer, DecisionResponse, Provider, Usage } from "../index.js";
+import type { Answer, DecisionResponse, ImageSource, Provider, Usage } from "../index.js";
 import type { Style } from "./color.js";
 
 /**
@@ -227,17 +227,20 @@ export function formatDryRun(args: {
   model: string;
   state: unknown;
   questions: unknown;
+  images?: readonly ImageSource[];
 }): string {
+  const questions = args.questions as Parameters<Provider["requestBody"]>[0]["questions"];
+  const images = args.images;
   const body = {
     provider: args.provider.name,
     model: args.model,
     url: args.provider.urlFor(args.model),
     request: JSON.parse(
-      args.provider.requestBody({
-        model: args.model,
-        state: args.state,
-        questions: args.questions as Parameters<Provider["requestBody"]>[0]["questions"],
-      })
+      args.provider.requestBody(
+        images == null || images.length === 0
+          ? { model: args.model, state: args.state, questions }
+          : { model: args.model, state: args.state, questions, images }
+      )
     ) as unknown,
   };
   return `${JSON.stringify(body, null, 2)}\n`;
