@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.4.0
+
 - Add a `cloudflare` provider for Cloudflare's [Clef decision models](https://blog.cloudflare.com/clef-decision-models/) on Workers AI. It reads `CLOUDFLARE_AUTH_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, defaults to `clef`, and takes `--model clef-flash` (or `model: "clef-flash"`) for the faster model. Each model posts to its own `@cf/cloudflare/<model>` URL, and the Workers AI `{ success, result }` envelope is unwrapped. The environment selects it after Typesafe and OpenRouter, and only when both variables are set.
 - `CloudflareProvider` is exported. `Provider` gains `urlFor(model)`, `unwrap()`, `missingConfiguration()`, and `requestIdHeader` for providers whose wire format differs.
 - `decision-model providers` shows `incomplete` for a provider whose key is set but which still needs more configuration.
