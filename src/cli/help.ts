@@ -28,7 +28,8 @@ Options:
   -V, --version    Print the version
 
 The provider is chosen from the environment: TYPESAFE_API_KEY selects
-Typesafe, otherwise OPENROUTER_API_KEY selects OpenRouter.
+Typesafe, otherwise OPENROUTER_API_KEY selects OpenRouter, otherwise
+CLOUDFLARE_AUTH_TOKEN with CLOUDFLARE_ACCOUNT_ID selects Cloudflare Clef.
 `;
 
 const COMMON = `
@@ -42,8 +43,8 @@ State (optional; when none is given, stdin is read if it is piped):
   A state over about 100 KB must come from -f or stdin; the OS caps one argument.
 
 Client:
-      --provider <name>    open-router or typesafe. Default: from the environment
-      --model <name>       Model name or alias. Default: the provider default
+      --provider <name>    open-router, typesafe, or cloudflare. Default: from the environment
+      --model <name>       Model name or alias, e.g. clef-flash. Default: the provider default
       --base-url <url>     Override the provider base URL
       --timeout <ms>       Per-attempt timeout in milliseconds. Default: 5000
       --max-retries <n>    Retries after the first attempt. Default: 2

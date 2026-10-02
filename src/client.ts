@@ -27,8 +27,6 @@ import type {
   ScoreAnswer,
 } from "./types.js";
 
-const REQUEST_ID_HEADER = "x-typesafe-request-id";
-
 /**
  * A transport performs one POST and resolves with `[status, body, headers]`.
  * A two-element `[status, body]` result is still accepted and treated as
@@ -44,9 +42,10 @@ export type Transport = (args: {
 
 export interface ClientOptions {
   /**
-   * "open-router", "typesafe", or a Provider instance. When omitted, apiKey
-   * alone selects OpenRouter; otherwise the environment decides
-   * (TYPESAFE_API_KEY, then OPENROUTER_API_KEY).
+   * "open-router", "typesafe", "cloudflare", or a Provider instance. When
+   * omitted, apiKey alone selects OpenRouter; otherwise the environment
+   * decides (TYPESAFE_API_KEY, then OPENROUTER_API_KEY, then
+   * CLOUDFLARE_AUTH_TOKEN with CLOUDFLARE_ACCOUNT_ID).
    */
   provider?: ProviderName | Provider;
   /** Overrides the provider's environment variable. */
@@ -92,6 +91,8 @@ export class Client {
         `apiKey is required for ${this.provider.name}: pass apiKey or set ${this.provider.envVar}`
       );
     }
+    const missing = this.provider.missingConfiguration();
+    if (missing !== null) throw new ConfigurationError(missing);
 
     this.model = this.provider.resolveModel(options.model ?? null);
     this.timeout = options.timeout ?? 5_000;
@@ -117,7 +118,7 @@ export class Client {
 
     const body = this.provider.requestBody({ model: this.model, state, questions });
     const [status, responseBody, responseHeaders] = await this.performWithRetry({
-      url: this.provider.url,
+      url: this.provider.urlFor(this.model),
       headers: this.provider.headers(),
       body,
     });
@@ -287,7 +288,12 @@ export class Client {
       throw new InvalidResponse("response body was not a JSON object");
     }
 
-    const parsedObject = parsed as Record<string, unknown>;
+    const decision = this.provider.unwrap(parsed as Record<string, unknown>);
+    if (decision === null || typeof decision !== "object" || Array.isArray(decision)) {
+      throw new InvalidResponse("response result was not a JSON object");
+    }
+
+    const parsedObject = decision as Record<string, unknown>;
     const rawAnswers =
       parsedObject.answers !== null &&
       typeof parsedObject.answers === "object" &&
@@ -337,7 +343,7 @@ export class Client {
 
     return new DecisionResponse<Qs>({
       answers: normalized as AnswersFor<Qs>,
-      usage: this.provider.usage(parsed),
+      usage: this.provider.usage(decision),
       model: typeof parsedObject.model === "string" ? parsedObject.model : null,
       id: typeof parsedObject.id === "string" ? parsedObject.id : null,
       raw: parsed,
@@ -348,7 +354,7 @@ export class Client {
   private requestIdFrom(headers: Record<string, string>): string | null {
     if (headers === null || typeof headers !== "object") return null;
     for (const [key, value] of Object.entries(headers)) {
-      if (key.toLowerCase() !== REQUEST_ID_HEADER) continue;
+      if (key.toLowerCase() !== this.provider.requestIdHeader.toLowerCase()) continue;
       const single = Array.isArray(value) ? value[0] : value;
       return single == null ? null : String(single);
     }

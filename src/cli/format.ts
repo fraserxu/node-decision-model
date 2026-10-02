@@ -231,7 +231,7 @@ export function formatDryRun(args: {
   const body = {
     provider: args.provider.name,
     model: args.model,
-    url: args.provider.url,
+    url: args.provider.urlFor(args.model),
     request: JSON.parse(
       args.provider.requestBody({
         model: args.model,
@@ -241,6 +241,12 @@ export function formatDryRun(args: {
     ) as unknown,
   };
   return `${JSON.stringify(body, null, 2)}\n`;
+}
+
+/** "incomplete" means the key is set but the provider still lacks something, e.g. an account id. */
+function keyStatus(provider: Provider): string {
+  if (!provider.hasApiKey()) return "not set";
+  return provider.missingConfiguration() === null ? "set" : "incomplete";
 }
 
 /** `envVarsInPriority` is the order the library consults them when no provider is named. */
@@ -260,7 +266,7 @@ export function formatProviders(
       provider.envVar,
       provider.defaultModel,
       ...(verbose ? [provider.url] : []),
-      provider.hasApiKey() ? "set" : "not set",
+      keyStatus(provider),
     ]),
   ];
   const lines = table(rows).map((line, index) => (index === 0 ? style.dim(line) : line));

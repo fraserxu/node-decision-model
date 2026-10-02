@@ -3,15 +3,16 @@
 The decision-model interface for Node.js. Decision models answer typed
 questions about a state with calibrated probabilities instead of generating
 text. This package talks to them through one `Client` with a provider behind
-it: OpenRouter by default, Typesafe's native API as a second door, more
-providers as labs ship them. No runtime dependencies; Node 20+.
+it: OpenRouter by default, Typesafe's native API as a second door,
+Cloudflare's Clef models on Workers AI as a third, more providers as labs
+ship them. No runtime dependencies; Node 20+.
 
 ## At a glance
 
 |                     |                                                                                           |
 | ------------------- | ----------------------------------------------------------------------------------------- |
 | Install             | `npm install node-decision-model`                                                         |
-| Auth                | `TYPESAFE_API_KEY` or `OPENROUTER_API_KEY` in the environment, for the library and the CLI |
+| Auth                | `TYPESAFE_API_KEY`, `OPENROUTER_API_KEY`, or `CLOUDFLARE_AUTH_TOKEN` with `CLOUDFLARE_ACCOUNT_ID` in the environment, for the library and the CLI |
 | Library entry point | `new Client().ask({ state, questions })`                                                  |
 | CLI entry point     | `npx decision-model yesno "Is this urgent?" -f issue.json`                                |
 | Question types      | `noul` (yes/no), `choice` (pick one of up to 255 labels), `score` (2 to 10 rubric levels) |
@@ -57,8 +58,9 @@ response.usage.inputTokens; // => 120
 ```
 
 `new Client()` with no arguments reads the environment: `TYPESAFE_API_KEY`
-selects Typesafe, otherwise `OPENROUTER_API_KEY` selects OpenRouter. With
-neither set it throws `ConfigurationError` naming both. `getDefaultClient()`
+selects Typesafe, otherwise `OPENROUTER_API_KEY` selects OpenRouter,
+otherwise `CLOUDFLARE_AUTH_TOKEN` together with `CLOUDFLARE_ACCOUNT_ID`
+selects Cloudflare. With none set it throws `ConfigurationError` naming them. `getDefaultClient()`
 memoizes one such default client; `setDefaultClient(undefined)` resets it.
 
 CommonJS works the same way:
@@ -72,9 +74,10 @@ const { Client, noul } = require("node-decision-model");
 The package installs a `decision-model` executable. It is the quickest way
 to ask a question from a shell, a script, or an agent tool call.
 
-It needs an API key in the environment: `TYPESAFE_API_KEY` for Typesafe or
-`OPENROUTER_API_KEY` for OpenRouter. Typesafe wins when both are set, and
-`--provider` picks one explicitly. `decision-model providers` shows which
+It needs an API key in the environment: `TYPESAFE_API_KEY` for Typesafe,
+`OPENROUTER_API_KEY` for OpenRouter, or `CLOUDFLARE_AUTH_TOKEN` and
+`CLOUDFLARE_ACCOUNT_ID` for Cloudflare. Typesafe wins when several are set,
+then OpenRouter, then Cloudflare, and `--provider` picks one explicitly. `decision-model providers` shows which
 keys are set and which provider will be used.
 
 ```bash
@@ -271,7 +274,7 @@ check the shape of its questions for free.
 | `--no-color`        | Plain text even in a terminal. `NO_COLOR` does the same; `FORCE_COLOR` forces colour        |
 | `--threshold <p>`   | `yesno` only: where yes becomes no. Default 0.5                                             |
 | `--check`           | `yesno` only: print nothing; exit 0 for yes and 1 for no                                    |
-| `--provider <name>` | `open-router` or `typesafe`. Default: from the environment                                  |
+| `--provider <name>` | `open-router`, `typesafe`, or `cloudflare`. Default: from the environment                   |
 | `--model <name>`    | Model name or alias. Default: the provider default                                          |
 | `--base-url <url>`  | Override the provider base URL                                                              |
 | `--timeout <ms>`    | Per-attempt timeout in milliseconds. Default: 5000                                          |
@@ -376,11 +379,53 @@ Typesafe returns an `x-typesafe-request-id` header, exposed as
 `response.requestId` (`null` on OpenRouter). Quote it when reporting a problem
 to Typesafe.
 
+### Cloudflare Workers AI (Clef)
+
+[Clef and Clef-flash](https://blog.cloudflare.com/clef-decision-models/) are
+Cloudflare's decision models on Workers AI. They speak the Jev wire format,
+so the same questions and answers work unchanged.
+
+```ts
+// process.env.CLOUDFLARE_AUTH_TOKEN and process.env.CLOUDFLARE_ACCOUNT_ID
+const client = new Client({ provider: "cloudflare" });
+
+// the faster model
+const flash = new Client({ provider: "cloudflare", model: "clef-flash" });
+
+// or pass the account id and token directly
+import { CloudflareProvider } from "node-decision-model";
+const client = new Client({
+  provider: new CloudflareProvider({ accountId: "...", apiKey: "..." }),
+});
+```
+
+| Environment variable    | Meaning                                              |
+| ----------------------- | ---------------------------------------------------- |
+| `CLOUDFLARE_AUTH_TOKEN` | API token with Workers AI permission, sent as Bearer |
+| `CLOUDFLARE_ACCOUNT_ID` | The account the request runs under                   |
+
+Each model has its own URL,
+`https://api.cloudflare.com/client/v4/accounts/<account id>/ai/run/@cf/cloudflare/<model>`,
+and the body's `model` field names the same model. The default model is
+`clef`; `clef-flash` trades some accuracy for speed. The Workers AI ids
+`@cf/cloudflare/clef` and `@cf/cloudflare/clef-flash` are accepted as
+aliases. The REST API wraps the decision in
+`{ "success": true, "result": { ... } }`; the client unwraps it, keeps the
+whole body in `response.raw`, and throws `InvalidResponse` with Cloudflare's
+error messages when `success` is `false`. A body without the envelope is
+read as is. Usage reports `inputTokens` and `outputTokens`; `cost` is
+`null`. `response.requestId` is the `cf-ray` header.
+
+The environment selects Cloudflare only when both variables are set; with
+the token alone, `decision-model providers` shows the key as `incomplete`.
+A `baseUrl` override (for example an AI Gateway URL ending in `/ai/run`)
+replaces the account URL, so it needs no account id.
+
 ### Options
 
 ```ts
 new Client({
-  provider: "typesafe", // "open-router", "typesafe", or a Provider instance
+  provider: "typesafe", // "open-router", "typesafe", "cloudflare", or a Provider instance
   apiKey: undefined, // overrides the provider's env var
   model: undefined, // undefined means the provider default; see aliases below
   baseUrl: undefined, // overrides the provider base URL
@@ -393,7 +438,7 @@ client.provider; // => TypesafeProvider
 client.model; // => "jev-latest" (resolved after aliasing)
 ```
 
-Both providers send `User-Agent: node-decision-model/<version>`.
+Every provider sends `User-Agent: node-decision-model/<version>`.
 
 ### Model aliases
 
@@ -409,12 +454,22 @@ is whatever the provider returned.
 | `"typesafe/jev-1.13"` | `typesafe/jev-1.13` | `jev-latest`   |
 | anything else         | as given            | as given       |
 
+| You pass                      | Cloudflare sends | To                              |
+| ----------------------------- | ---------------- | ------------------------------- |
+| `undefined`                   | `clef`           | `.../@cf/cloudflare/clef`       |
+| `"@cf/cloudflare/clef"`       | `clef`           | `.../@cf/cloudflare/clef`       |
+| `"clef-flash"`                | `clef-flash`     | `.../@cf/cloudflare/clef-flash` |
+| `"@cf/cloudflare/clef-flash"` | `clef-flash`     | `.../@cf/cloudflare/clef-flash` |
+| anything else                 | as given         | `.../@cf/cloudflare/<model>`    |
+
 ### Writing a provider
 
 Extend `Provider` and implement the `name`, `envVar`, `defaultBaseUrl`,
-`endpointPath`, and `defaultModel` getters; optionally override `aliases` and
-`reportsCost`. Override `headers()`, `requestBody()`, or `usage()` when the
-wire format differs. Pass an instance as `provider`.
+`endpointPath`, and `defaultModel` getters; optionally override `aliases`,
+`reportsCost`, and `requestIdHeader`. Override `headers()`, `requestBody()`,
+`unwrap()`, or `usage()` when the wire format differs, `urlFor(model)` when
+each model has its own URL, and `missingConfiguration()` when the provider
+needs more than a key. Pass an instance as `provider`.
 
 ```ts
 import { Provider } from "node-decision-model";

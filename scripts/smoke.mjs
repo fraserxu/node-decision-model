@@ -1,17 +1,21 @@
 // Live end-to-end check against the real API, through the built bundle in
-// dist/ (run `npm run build` first). Reads TYPESAFE_API_KEY or
-// OPENROUTER_API_KEY from the environment; pass --provider to force one.
+// dist/ (run `npm run build` first). Reads TYPESAFE_API_KEY,
+// OPENROUTER_API_KEY, or CLOUDFLARE_AUTH_TOKEN with CLOUDFLARE_ACCOUNT_ID from
+// the environment; pass --provider to force one and --model to pick a model.
 //
 //   npm run build && node --env-file=.env scripts/smoke.mjs
 //   npm run build && node --env-file=.env scripts/smoke.mjs --provider open-router
+//   npm run build && node --env-file=.env scripts/smoke.mjs --provider cloudflare --model clef-flash
 
 import { Client, choice, noul, score, ApiError } from "../dist/index.js";
 
 const providerFlag = process.argv.indexOf("--provider");
 const provider = providerFlag === -1 ? undefined : process.argv[providerFlag + 1];
+const modelFlag = process.argv.indexOf("--model");
+const model = modelFlag === -1 ? undefined : process.argv[modelFlag + 1];
 
-const client = new Client(provider ? { provider } : {});
-console.log(`provider: ${client.provider.name}  model: ${client.model}  url: ${client.provider.url}`);
+const client = new Client({ ...(provider ? { provider } : {}), ...(model ? { model } : {}) });
+console.log(`provider: ${client.provider.name}  model: ${client.model}  url: ${client.provider.urlFor(client.model)}`);
 
 const started = performance.now();
 try {

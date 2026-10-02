@@ -135,12 +135,16 @@ describe("registry", () => {
 
   it("raises ConfigurationError for unknown names", () => {
     expect(() => buildProvider("mystery")).toThrow(ConfigurationError);
-    expect(() => buildProvider("mystery")).toThrow(/known providers: open-router, typesafe/);
+    expect(() => buildProvider("mystery")).toThrow(/known providers: open-router, typesafe, cloudflare/);
   });
 
   it("lists names and env vars in priority order", () => {
-    expect(providerNames()).toEqual(["open-router", "typesafe"]);
-    expect(providerEnvVars()).toEqual(["TYPESAFE_API_KEY", "OPENROUTER_API_KEY"]);
+    expect(providerNames()).toEqual(["open-router", "typesafe", "cloudflare"]);
+    expect(providerEnvVars()).toEqual([
+      "TYPESAFE_API_KEY",
+      "OPENROUTER_API_KEY",
+      "CLOUDFLARE_AUTH_TOKEN",
+    ]);
   });
 });
 
@@ -158,7 +162,7 @@ describe("providerFromEnv", () => {
   });
 
   it("returns null with no keys", async () => {
-    await withEnv({ TYPESAFE_API_KEY: undefined, OPENROUTER_API_KEY: undefined }, () => {
+    await withEnv({ TYPESAFE_API_KEY: undefined, OPENROUTER_API_KEY: undefined, CLOUDFLARE_AUTH_TOKEN: undefined }, () => {
       expect(providerFromEnv()).toBeNull();
     });
   });

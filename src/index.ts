@@ -8,12 +8,17 @@ export {
   Provider,
   OpenRouterProvider,
   TypesafeProvider,
+  CloudflareProvider,
   buildProvider,
   providerFromEnv,
   providerNames,
   providerEnvVars,
 } from "./providers/index.js";
-export type { ProviderName, ProviderOptions } from "./providers/index.js";
+export type {
+  CloudflareProviderOptions,
+  ProviderName,
+  ProviderOptions,
+} from "./providers/index.js";
 export {
   DecisionModelError,
   ConfigurationError,
