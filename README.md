@@ -163,17 +163,60 @@ file or stdin; the operating system caps a single argument.
 
 ### Passing an image
 
-Cloudflare Clef and Clef-flash can see a local photo. Repeat `-i` / `--image`
-for up to four PNG, JPEG, or WebP files. Remote URLs are not accepted, and
-other providers reject the flag.
+Cloudflare Clef, Clef-flash, and Clef-omni can see a local photo. Repeat `-i`
+/ `--image` for up to four PNG, JPEG, or WebP files. Remote URLs are not
+accepted, and other providers reject the flag.
 
 ```bash
 decision-model yesno "Is the total legible?" --image receipt.jpg -s "Receipt from today"
 decision-model choose "What is this?" cat dog other -i photo.png -i photo2.jpg --provider cloudflare
 ```
 
-Each image may be 4 MiB and 16 megapixels. Together they may be 8 MiB, and the
-whole request body 13 MiB.
+Each image may be 4 MiB and 16 megapixels. Together they may be 8 MiB, and on
+`clef` and `clef-flash` the whole request body 13 MiB.
+
+### Passing audio and video
+
+Cloudflare Clef-omni also listens and watches. It needs `--model clef-omni`;
+`clef` and `clef-flash` reject the flags with a message that says so, as do
+other providers. `--audio` takes a local WAV or MP3 file, `--video` a local MP4
+or WebM file, and both repeat. The format is read from the file's bytes, and
+a `.wav`, `.mp3`, `.mp4`, or `.webm` extension that disagrees with them is an
+error. Remote URLs are not accepted.
+
+```bash
+decision-model yesno "Is the fan rattling?" --audio unit.wav --provider cloudflare --model clef-omni
+decision-model choose "What is the dog doing?" sleeping playing barking --video dog.mp4 --provider cloudflare --model clef-omni
+```
+
+Review an installation from a photo of the unit, a recording of it running,
+and a clip of the fan, all in one request:
+
+```bash
+decision-model ask -s "Heat pump installed yesterday; the customer reports a noise at startup." \
+  --provider cloudflare --model clef-omni \
+  --image unit.jpg --audio running.wav --video fan.mp4 \
+  --noul level="Is the unit mounted level?" \
+  --choice noise="What does the startup sound like?|normal,rattle,grinding" \
+  --score fan="How steady is the fan?|wobbling,uneven,steady"
+```
+
+```
+level  yes       91%
+noise  rattle    77%  normal 19% · grinding 4%
+fan    uneven    64%  1.52 on a 0–2 scale · steady 28% · wobbling 8%
+clef-omni · 2140 in / 54 out tokens · 3.4s · 8f1e2d3c4b5a
+```
+
+| Input     | Formats         | Count | Each                 | Together                  |
+| --------- | --------------- | ----- | -------------------- | ------------------------- |
+| `--image` | PNG, JPEG, WebP | 4     | 4 MiB, 16 megapixels | 8 MiB                     |
+| `--audio` | WAV, MP3        | 4     | 8 MiB, 300 seconds   | 16 MiB of audio and video |
+| `--video` | MP4, WebM       | 2     | 16 MiB, 60 seconds   | 16 MiB of audio and video |
+
+Sizes and counts are checked before anything is sent. A WAV's duration is
+read from its header and an MP4's from its `mvhd` box; MP3 and WebM durations
+are left to the server. Videos are sampled at 2 frames per second.
 
 ### Passing questions to `ask`
 
@@ -289,11 +332,13 @@ check the shape of its questions for free.
 | `--threshold <p>`    | `yesno` only: where yes becomes no. Default 0.5                                             |
 | `--check`            | `yesno` only: print nothing; exit 0 for yes and 1 for no                                    |
 | `--provider <name>`  | `open-router`, `typesafe`, or `cloudflare`. Default: from the environment                   |
-| `--model <name>`     | Model name or alias. Default: the provider default                                          |
+| `--model <name>`     | Model name or alias, e.g. `clef-flash` or `clef-omni`. Default: the provider default        |
 | `--base-url <url>`   | Override the provider base URL                                                              |
 | `--timeout <ms>`     | Per-attempt timeout in milliseconds. Default: 5000                                          |
 | `--max-retries <n>`  | Retries after the first attempt. Default: 2                                                 |
 | `-i, --image <path>` | Cloudflare Clef only: a local PNG, JPEG, or WebP file; repeatable, up to 4. No remote URLs   |
+| `--audio <path>`     | Cloudflare Clef-omni only: a local WAV or MP3 file; repeatable, up to 4. No remote URLs      |
+| `--video <path>`     | Cloudflare Clef-omni only: a local MP4 or WebM file; repeatable, up to 2. No remote URLs     |
 
 Colour and bars appear only when stdout is a terminal, so piped output and
 logs stay plain. Nothing ever prompts.
@@ -396,9 +441,10 @@ to Typesafe.
 
 ### Cloudflare Workers AI (Clef)
 
-[Clef and Clef-flash](https://blog.cloudflare.com/clef-decision-models/) are
-Cloudflare's decision models on Workers AI. They speak the Jev wire format,
-so the same questions and answers work unchanged.
+[Clef, Clef-flash](https://blog.cloudflare.com/clef-decision-models/), and
+[Clef-omni](https://developers.cloudflare.com/workers-ai/models/clef-omni/)
+are Cloudflare's decision models on Workers AI. They speak the Jev wire
+format, so the same questions and answers work unchanged.
 
 ```ts
 // process.env.CLOUDFLARE_AUTH_TOKEN and process.env.CLOUDFLARE_ACCOUNT_ID
@@ -407,12 +453,25 @@ const client = new Client({ provider: "cloudflare" });
 // the faster model
 const flash = new Client({ provider: "cloudflare", model: "clef-flash" });
 
+// the model that also takes audio and video
+const omni = new Client({ provider: "cloudflare", model: "clef-omni" });
+
 // or pass the account id and token directly
 import { CloudflareProvider } from "node-decision-model";
 const client = new Client({
   provider: new CloudflareProvider({ accountId: "...", apiKey: "..." }),
 });
 ```
+
+| Model        | Workers AI id              | Context               | Inputs                      |
+| ------------ | -------------------------- | --------------------- | --------------------------- |
+| `clef`       | `@cf/cloudflare/clef`      | 64k (65,536 tokens)   | text, images                |
+| `clef-flash` | `@cf/cloudflare/clef-flash`| 24k (24,576 tokens)   | text, images                |
+| `clef-omni`  | `@cf/cloudflare/clef-omni` | 64k (64,000 tokens)   | text, images, audio, video  |
+
+The hosted Clef-flash context window is now 24k; it was advertised as 64k
+when the model launched. Cloudflare lists Clef-omni at $0.15 per million
+input tokens.
 
 | Environment variable    | Meaning                                              |
 | ----------------------- | ---------------------------------------------------- |
@@ -422,8 +481,9 @@ const client = new Client({
 Each model has its own URL,
 `https://api.cloudflare.com/client/v4/accounts/<account id>/ai/run/@cf/cloudflare/<model>`,
 and the body's `model` field names the same model. The default model is
-`clef`; `clef-flash` trades some accuracy for speed. The Workers AI ids
-`@cf/cloudflare/clef` and `@cf/cloudflare/clef-flash` are accepted as
+`clef`; `clef-flash` trades some accuracy for speed; `clef-omni` adds audio
+and video. The Workers AI ids `@cf/cloudflare/clef`,
+`@cf/cloudflare/clef-flash`, and `@cf/cloudflare/clef-omni` are accepted as
 aliases. The REST API wraps the decision in
 `{ "success": true, "result": { ... } }`; the client unwraps it, keeps the
 whole body in `response.raw`, and throws `InvalidResponse` with Cloudflare's
@@ -431,17 +491,17 @@ error messages when `success` is `false`. A body without the envelope is
 read as is. Usage reports `inputTokens` and `outputTokens`; `cost` is
 `null`. `response.requestId` is the `cf-ray` header.
 
-Clef and Clef-flash accept images. Pass `images` to `ask`: a local path, a
+All three models accept images. Pass `images` to `ask`: a local path, a
 `Uint8Array` of PNG, JPEG, or WebP bytes, or a `data:image/png;base64,...`
 URL (JPEG and WebP data URLs too). Remote URLs are not accepted. The request
 embeds each image as `{ "content_type", "base64" }`, and Clef places those
 images before the state. The limits match the
 [Clef schema](https://developers.cloudflare.com/workers-ai/models/clef/):
-4 images, 4 MiB and 16 megapixels each, 8 MiB of image bytes in total, and a
-13 MiB request body. The "total decoded" cap is the sum of those file bytes,
-not the expanded pixel buffer, so a normal photo under 16 megapixels gets
-through. Other providers throw `RequestError` if `images` is set. The CLI
-flag is `--image` / `-i`.
+4 images, 4 MiB and 16 megapixels each, 8 MiB of image bytes in total, and
+on `clef` and `clef-flash` a 13 MiB request body. The "total decoded" cap is
+the sum of those file bytes, not the expanded pixel buffer, so a normal photo
+under 16 megapixels gets through. Other providers throw `RequestError` if
+`images` is set. The CLI flag is `--image` / `-i`.
 
 ```ts
 import { readFileSync } from "node:fs";
@@ -456,6 +516,63 @@ const response = await client.ask({
 ```bash
 decision-model yesno "Is the total legible?" --image receipt.jpg -s "Receipt from today"
 ```
+
+#### Audio and video with Clef-omni
+
+`clef-omni` also takes `audio` and `videos`. Each entry is a local path, a
+`Uint8Array`, or a data URL, like an image: WAV or MP3 for audio
+(`data:audio/wav;base64,...`, `data:audio/mpeg;base64,...`), MP4 or WebM for
+video (`data:video/mp4;base64,...`, `data:video/webm;base64,...`). The
+format is read from the bytes; a path whose `.wav`, `.mp3`, `.mp4`, or
+`.webm` extension disagrees with them is a `RequestError`, as is any other
+format and any remote URL. The request carries them as data URL strings in
+`audio` and `videos`, with the `images` objects unchanged. The types are
+exported as `AudioSource` and `VideoSource`; `MediaInputs` names all three
+arrays together.
+
+```ts
+const omni = new Client({ provider: "cloudflare", model: "clef-omni" });
+
+const response = await omni.ask({
+  state: "Heat pump installed yesterday; the customer reports a noise at startup.",
+  images: ["unit.jpg"],
+  audio: ["running.wav"], // or readFileSync("running.wav")
+  videos: ["fan.mp4"],
+  questions: {
+    level: noul("Is the unit mounted level?"),
+    noise: choice("What does the startup sound like?", {
+      normal: null,
+      rattle: null,
+      grinding: null,
+    }),
+    fan: score("How steady is the fan?", ["wobbling", "uneven", "steady"]),
+  },
+});
+
+response.answers.noise.choice; // => "rattle"
+response.answers.fan.score; // => 1.52
+```
+
+The limits follow the
+[Clef-omni schema](https://developers.cloudflare.com/workers-ai/models/clef-omni/):
+
+| Input    | Count | Each                 | Together                         |
+| -------- | ----- | -------------------- | -------------------------------- |
+| `images` | 4     | 4 MiB, 16 megapixels | 8 MiB                            |
+| `audio`  | 4     | 8 MiB, 300 seconds   | 16 MiB of audio and video bytes  |
+| `videos` | 2     | 16 MiB, 60 seconds   | 16 MiB of audio and video bytes  |
+
+Counts and sizes are checked locally. A WAV's duration is read from its
+`fmt ` and `data` chunks and an MP4's from its `mvhd` box, so a clip that is
+too long fails before anything is sent; MP3 and WebM durations are left to
+the server. The model samples video at 2 frames per second. The 13 MiB
+request body cap applies to `clef` and `clef-flash` only: Clef-omni's docs
+set no body cap, and its media limits add up to more than 13 MiB, so the
+client holds it to the decoded limits above instead. Setting `audio` or
+`videos` with `clef` or `clef-flash` throws `RequestError` naming the model
+and `--model clef-omni`; other providers throw `RequestError` as they do for
+images. A request without media is sent exactly as before, with no empty
+arrays.
 
 The environment selects Cloudflare only when both variables are set; with
 the token alone, `decision-model providers` shows the key as `incomplete`.
@@ -501,16 +618,20 @@ is whatever the provider returned.
 | `"@cf/cloudflare/clef"`       | `clef`           | `.../@cf/cloudflare/clef`       |
 | `"clef-flash"`                | `clef-flash`     | `.../@cf/cloudflare/clef-flash` |
 | `"@cf/cloudflare/clef-flash"` | `clef-flash`     | `.../@cf/cloudflare/clef-flash` |
+| `"clef-omni"`                 | `clef-omni`      | `.../@cf/cloudflare/clef-omni`  |
+| `"@cf/cloudflare/clef-omni"`  | `clef-omni`      | `.../@cf/cloudflare/clef-omni`  |
 | anything else                 | as given         | `.../@cf/cloudflare/<model>`    |
 
 ### Writing a provider
 
 Extend `Provider` and implement the `name`, `envVar`, `defaultBaseUrl`,
 `endpointPath`, and `defaultModel` getters; optionally override `aliases`,
-`reportsCost`, and `requestIdHeader`. Override `headers()`, `requestBody()`,
-`unwrap()`, or `usage()` when the wire format differs, `urlFor(model)` when
-each model has its own URL, and `missingConfiguration()` when the provider
-needs more than a key. Pass an instance as `provider`.
+`reportsCost`, and `requestIdHeader`. Override `headers()`, `requestBody()`
+(its argument type is exported as `RequestBodyArgs`; the base implementation
+rejects `images`, `audio`, and `videos`), `unwrap()`, or `usage()` when the
+wire format differs, `urlFor(model)` when each model has its own URL, and
+`missingConfiguration()` when the provider needs more than a key. Pass an
+instance as `provider`.
 
 ```ts
 import { Provider } from "node-decision-model";
@@ -594,7 +715,7 @@ them all. Catch the specific classes when you need to branch.
 | Error                 | Meaning                                                                                   |
 | --------------------- | ----------------------------------------------------------------------------------------- |
 | `ConfigurationError`  | No provider could be resolved, missing apiKey, unknown provider, or bad `retry` value     |
-| `RequestError`        | Questions map was empty                                                                   |
+| `RequestError`        | Questions map was empty, or an image, audio, or video input was invalid or not allowed     |
 | `TransportError`      | Network failure after retries, carries `causeError`                                       |
 | `TimeoutError`        | Timeout after retries (extends `TransportError`)                                          |
 | `ApiError`            | Non-2xx response, carries `status`, `body`, and `headers`                                 |

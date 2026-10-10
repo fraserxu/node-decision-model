@@ -1,11 +1,22 @@
 import { RequestError } from "../errors.js";
-import type { ImageSource } from "../images.js";
+import type { MediaInputs } from "../media.js";
 import { VERSION } from "../version.js";
 import type { Questions, Usage } from "../types.js";
 
 export interface ProviderOptions {
   apiKey?: string | null | undefined;
   baseUrl?: string | null | undefined;
+}
+
+/**
+ * What `requestBody` turns into the wire body. The media arrays are present
+ * only when they have something in them; only the Cloudflare provider
+ * accepts any of them.
+ */
+export interface RequestBodyArgs extends MediaInputs {
+  model: string;
+  state: unknown;
+  questions: Questions;
 }
 
 function parseInteger(value: unknown): number | null {
@@ -116,15 +127,19 @@ export abstract class Provider {
     };
   }
 
-  requestBody(args: {
-    model: string;
-    state: unknown;
-    questions: Questions;
-    /** Local images. Only the Cloudflare Clef provider accepts them. */
-    images?: readonly ImageSource[];
-  }): string {
+  requestBody(args: RequestBodyArgs): string {
     if (args.images != null && args.images.length > 0) {
       throw new RequestError(`images are only supported by the cloudflare provider, not ${this.name}`);
+    }
+    if (args.audio != null && args.audio.length > 0) {
+      throw new RequestError(
+        `audio is only supported by the cloudflare provider (model clef-omni), not ${this.name}`
+      );
+    }
+    if (args.videos != null && args.videos.length > 0) {
+      throw new RequestError(
+        `videos are only supported by the cloudflare provider (model clef-omni), not ${this.name}`
+      );
     }
     return JSON.stringify({ model: args.model, state: args.state, questions: args.questions });
   }

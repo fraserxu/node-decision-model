@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.5.0 (2026-10-11)
+
+- Add Cloudflare's [Clef-omni](https://developers.cloudflare.com/workers-ai/models/clef-omni/) (`@cf/cloudflare/clef-omni`), which hears and watches as well as sees. `--model clef-omni` (or `model: "clef-omni"`) selects it; the Workers AI id is accepted as an alias. Images work on it exactly as on Clef and Clef-flash.
+- Audio input: `ask({ audio })` and `--audio <path>` (repeatable) send up to four local WAV or MP3 clips, each at most 8 MiB and 300 seconds. The format is read from the bytes, with the `.wav` / `.mp3` extension as a cross-check; a WAV's duration is checked from its header, an MP3's is left to the server.
+- Video input: `ask({ videos })` and `--video <path>` (repeatable) send up to two local MP4 or WebM clips, each at most 16 MiB and 60 seconds, sampled by the model at 2 frames per second. An MP4's duration is checked from its `mvhd` box, a WebM's is left to the server.
+- Audio and video together may decode to 16 MiB. They are sent as `data:audio/...;base64,` and `data:video/...;base64,` strings; a data URL or a `Uint8Array` is accepted in place of a path. Remote URLs are rejected.
+- Audio and video on `clef` or `clef-flash` throw `RequestError` naming the model and `--model clef-omni`; on any other provider they are rejected like images. A text-only request body is unchanged.
+- The 13 MiB request body cap is enforced for `clef` and `clef-flash` only. Clef-omni documents no body cap and its decoded media limits exceed 13 MiB, so it is held to those limits instead.
+- New exported types: `AudioSource`, `VideoSource`, `MediaInputs`, and `RequestBodyArgs` (the argument of `Provider.requestBody`).
+- README: hosted Clef-flash now has a 24k (24,576 token) context window; Clef stays at 64k (65,536) and Clef-omni has 64,000.
+
 ## 0.4.1
 
 - `decision-model --version` and the `User-Agent` (`node-decision-model/<version>`) are read from `package.json`, so they cannot drift from the published package version.

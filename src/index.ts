@@ -18,6 +18,7 @@ export type {
   CloudflareProviderOptions,
   ProviderName,
   ProviderOptions,
+  RequestBodyArgs,
 } from "./providers/index.js";
 export {
   DecisionModelError,
@@ -56,3 +57,4 @@ export type {
 } from "./types.js";
 export { VERSION } from "./version.js";
 export type { ImageSource } from "./images.js";
+export type { AudioSource, VideoSource, MediaInputs } from "./media.js";

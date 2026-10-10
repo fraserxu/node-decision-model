@@ -1,4 +1,4 @@
-import type { Answer, DecisionResponse, ImageSource, Provider, Usage } from "../index.js";
+import type { Answer, DecisionResponse, MediaInputs, Provider, Usage } from "../index.js";
 import type { Style } from "./color.js";
 
 /**
@@ -222,25 +222,21 @@ export function formatJson(
   return `${JSON.stringify(body, null, 2)}\n`;
 }
 
+/** `media` holds only the arrays that have something in them; see mediaOf in run.ts. */
 export function formatDryRun(args: {
   provider: Provider;
   model: string;
   state: unknown;
   questions: unknown;
-  images?: readonly ImageSource[];
+  media?: MediaInputs;
 }): string {
   const questions = args.questions as Parameters<Provider["requestBody"]>[0]["questions"];
-  const images = args.images;
   const body = {
     provider: args.provider.name,
     model: args.model,
     url: args.provider.urlFor(args.model),
     request: JSON.parse(
-      args.provider.requestBody(
-        images == null || images.length === 0
-          ? { model: args.model, state: args.state, questions }
-          : { model: args.model, state: args.state, questions, images }
-      )
+      args.provider.requestBody({ model: args.model, state: args.state, questions, ...args.media })
     ) as unknown,
   };
   return `${JSON.stringify(body, null, 2)}\n`;

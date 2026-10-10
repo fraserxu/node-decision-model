@@ -17,6 +17,7 @@ Commands:
 The state comes from -s <text>, -f <path>, or stdin when it is piped. It is
 optional: with none, the model answers from what it already knows.
 Cloudflare Clef also reads a local photo: --image photo.jpg
+Clef-omni (--model clef-omni) also listens and watches: --audio clip.wav --video clip.mp4
 
 Examples:
   ${PROGRAM} choose "The toilet paper roll goes:" over under
@@ -43,15 +44,22 @@ State (optional; when none is given, stdin is read if it is piped):
   model answers from what it already knows.
   A state over about 100 KB must come from -f or stdin; the OS caps one argument.
 
-Images (Cloudflare Clef only; repeatable):
+Images (Cloudflare Clef, Clef-flash, and Clef-omni; repeatable):
   -i, --image <path>       A local PNG, JPEG, or WebP file, placed before the
                            state. Up to 4. Remote URLs are not accepted.
                            Limits: 4 MiB and 16 megapixels each, 8 MiB total,
-                           13 MiB for the whole request body.
+                           13 MiB for the whole request body on clef and clef-flash.
+
+Audio and video (Cloudflare Clef-omni only, --model clef-omni; repeatable):
+      --audio <path>       A local WAV or MP3 file. Up to 4, each 8 MiB and
+                           300 seconds.
+      --video <path>       A local MP4 or WebM file. Up to 2, each 16 MiB and
+                           60 seconds, sampled at 2 frames per second.
+  Audio and video together may be 16 MiB. Remote URLs are not accepted.
 
 Client:
       --provider <name>    open-router, typesafe, or cloudflare. Default: from the environment
-      --model <name>       Model name or alias, e.g. clef-flash. Default: the provider default
+      --model <name>       Model name or alias, e.g. clef-flash or clef-omni. Default: the provider default
       --base-url <url>     Override the provider base URL
       --timeout <ms>       Per-attempt timeout in milliseconds. Default: 5000
       --max-retries <n>    Retries after the first attempt. Default: 2
@@ -95,6 +103,7 @@ Examples:
   cat issue.json | ${PROGRAM} yesno "Is this urgent?"
   ${PROGRAM} yesno -q "Is this urgent?" -f issue.json                 # prints yes or no
   ${PROGRAM} yesno --check "Is this spam?" -s "$body" || deliver "$body"
+  ${PROGRAM} yesno "Is the fan rattling?" --audio unit.wav --provider cloudflare --model clef-omni
 `;
 
 const CHOOSE = `Usage: ${PROGRAM} choose "<question>" <label>... [options]
@@ -146,6 +155,12 @@ Examples:
 
   cat issue.json | ${PROGRAM} ask --questions triage.json --json
 
+  ${PROGRAM} ask -s "Review the installation" --provider cloudflare --model clef-omni \\
+    --image unit.jpg --audio running.wav --video fan.mp4 \\
+    --noul level="Is the unit level?" \\
+    --choice noise="What does it sound like?|normal,rattle,grinding" \\
+    --score fan="How steady is the fan?|wobbling,uneven,steady"
+
   ${PROGRAM} ask --input - --json <<'EOF'
   { "state": { "title": "500 on checkout" },
     "questions": { "urgent": { "type": "noul", "instructions": "Is this urgent?" } } }
@@ -196,7 +211,9 @@ Dry run, for --dry-run:
   { "provider": "typesafe", "model": "jev-latest", "url": "https://...",
     "request": { "model": "jev-latest", "state": ..., "questions": { ... } } }
   With --image and the Cloudflare provider, request.images is an array of
-  { "content_type": "image/jpeg", "base64": "..." }.
+  { "content_type": "image/jpeg", "base64": "..." }. With --audio and --video
+  on clef-omni, request.audio and request.videos are arrays of data URLs:
+  "data:audio/wav;base64,..." and "data:video/mp4;base64,...".
 `;
 
 const RULE = "\n————————————————————————————————————————————————————————————————————————\n\n";

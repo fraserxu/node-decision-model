@@ -261,8 +261,45 @@ describe("parseArgv", () => {
         noColor: false,
         dryRun: false,
         images: [],
+        audio: [],
+        videos: [],
       },
     });
+  });
+
+  it("collects repeatable --image, --audio, and --video paths", () => {
+    const command = parseArgv([
+      "yesno",
+      "Is the fan rattling?",
+      "-i",
+      "unit.jpg",
+      "--audio",
+      "a.wav",
+      "--audio",
+      "b.mp3",
+      "--video",
+      "fan.mp4",
+      "--model",
+      "clef-omni",
+      "--provider",
+      "cloudflare",
+    ]);
+    expect(command).toMatchObject({
+      kind: "single",
+      options: {
+        verb: "yesno",
+        images: ["unit.jpg"],
+        audio: ["a.wav", "b.mp3"],
+        videos: ["fan.mp4"],
+        model: "clef-omni",
+        provider: "cloudflare",
+      },
+    });
+    expect(parseArgv(["ask", "s", "--audio", "a.wav", "--video", "v.webm", "--noul", "q=Q?"])).toMatchObject({
+      kind: "ask",
+      options: { audio: ["a.wav"], videos: ["v.webm"], images: [] },
+    });
+    expect(() => parseArgv(["yesno", "Q?", "--audio"])).toThrow(/--audio/);
   });
 
   it("parses the single-question verbs with their labels", () => {
@@ -423,6 +460,7 @@ describe("run", () => {
     expect(help.out).toMatch(/^Usage: decision-model <command>/);
     expect(help.out).toContain('yesno  "<question>"');
     expect(help.out).toContain("--image photo.jpg");
+    expect(help.out).toContain("--audio clip.wav --video clip.mp4");
 
     const bare = new FakeIo();
     expect(await run([], bare)).toBe(2);
@@ -435,6 +473,9 @@ describe("run", () => {
     expect(ask.out).toContain("--choice <id>=<instructions>|<label>,...");
     expect(ask.out).toContain("--input <file|->");
     expect(ask.out).toContain("--image <path>");
+    expect(ask.out).toContain("--audio <path>");
+    expect(ask.out).toContain("--video <path>");
+    expect(ask.out).toContain("--model clef-omni");
 
     const all = new FakeIo();
     expect(await run(["help", "all"], all)).toBe(0);

@@ -16,6 +16,7 @@ import {
 import { buildProvider, providerEnvVars, providerFromEnv, Provider } from "./providers/index.js";
 import type { ProviderName } from "./providers/index.js";
 import type { ImageSource } from "./images.js";
+import { presentMedia, type AudioSource, type VideoSource } from "./media.js";
 import { RetryPolicy, type RetryPolicyOptions } from "./retry-policy.js";
 import { DecisionResponse } from "./response.js";
 import type {
@@ -116,18 +117,23 @@ export class Client {
      * base64 data URL. Other providers reject them. Remote URLs are not accepted.
      */
     images?: readonly ImageSource[];
+    /**
+     * Audio for Cloudflare clef-omni: a local WAV or MP3 path, its bytes, or
+     * a `data:audio/...;base64,` URL. Other models and providers reject it.
+     */
+    audio?: readonly AudioSource[];
+    /**
+     * Video for Cloudflare clef-omni: a local MP4 or WebM path, its bytes, or
+     * a `data:video/...;base64,` URL. Other models and providers reject it.
+     */
+    videos?: readonly VideoSource[];
   }): Promise<DecisionResponse<Qs>> {
     const { state, questions } = args;
     if (questions == null || Object.keys(questions).length === 0) {
       throw new RequestError("questions must not be empty");
     }
 
-    const images = args.images;
-    const body = this.provider.requestBody(
-      images == null || images.length === 0
-        ? { model: this.model, state, questions }
-        : { model: this.model, state, questions, images }
-    );
+    const body = this.provider.requestBody({ model: this.model, state, questions, ...presentMedia(args) });
     const [status, responseBody, responseHeaders] = await this.performWithRetry({
       url: this.provider.urlFor(this.model),
       headers: this.provider.headers(),

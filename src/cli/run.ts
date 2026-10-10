@@ -14,7 +14,7 @@ import {
   providerNames,
   VERSION,
 } from "../index.js";
-import type { ClientOptions, Provider, Question, Questions } from "../index.js";
+import type { ClientOptions, MediaInputs, Provider, Question, Questions } from "../index.js";
 import { colorEnabled, createStyle } from "./color.js";
 import type { Style } from "./color.js";
 import {
@@ -165,18 +165,13 @@ async function perform(
   io: CliIo,
   presentation: Presentation
 ): Promise<number> {
-  const images = options.images;
+  const media = mediaOf(options);
 
   if (options.dryRun) {
     const provider = providerForDryRun(options);
     let printed: string;
     try {
-      printed = formatDryRun({
-        provider,
-        model: provider.resolveModel(options.model),
-        ...request,
-        ...(images.length > 0 ? { images } : {}),
-      });
+      printed = formatDryRun({ provider, model: provider.resolveModel(options.model), ...request, media });
     } catch (error) {
       usageErrorForRequest(error);
     }
@@ -188,9 +183,7 @@ async function perform(
   const now = io.now ?? (() => performance.now());
   const started = now();
   try {
-    const response = await client
-      .ask(images.length > 0 ? { ...request, images } : request)
-      .catch(usageErrorForRequest);
+    const response = await client.ask({ ...request, ...media }).catch(usageErrorForRequest);
     const elapsedMs = Math.round(now() - started);
     const provider = client.provider.name;
 
@@ -223,6 +216,15 @@ async function perform(
     report(io, options.json, describeFailure(error, client.retryPolicy));
     return presentation.check ? EXIT_CHECK_FAILED : EXIT_FAILED;
   }
+}
+
+/** The `--image`, `--audio`, and `--video` files, with the empty lists left out so a text request is unchanged. */
+function mediaOf(options: CommonOptions): MediaInputs {
+  const media: MediaInputs = {};
+  if (options.images.length > 0) media.images = options.images;
+  if (options.audio.length > 0) media.audio = options.audio;
+  if (options.videos.length > 0) media.videos = options.videos;
+  return media;
 }
 
 function styleFor(io: CliIo, noColor: boolean): Style {
@@ -361,9 +363,10 @@ function namedProvider(name: string): Provider {
 
 /**
  * A request the provider refuses to build (an unreadable or oversized
- * --image, images for a provider without them, a body over the Clef cap) is
- * a usage error, exit 2: it is found before anything is sent, and before a
- * dry run prints a body the API would reject. Anything else is rethrown.
+ * --image, --audio, or --video, media for a provider or model without it, a
+ * body over the Clef cap) is a usage error, exit 2: it is found before
+ * anything is sent, and before a dry run prints a body the API would reject.
+ * Anything else is rethrown.
  */
 function usageErrorForRequest(error: unknown): never {
   if (error instanceof RequestError) {
@@ -372,19 +375,39 @@ function usageErrorForRequest(error: unknown): never {
   throw error;
 }
 
+const OMNI_EXAMPLE = `${PROGRAM} yesno "Is the fan rattling?" --audio unit.wav --video fan.mp4 --provider cloudflare --model clef-omni`;
+
 function requestHints(message: string): string[] {
+  // Media messages start with "audio" or "video" (the item label) or name
+  // the clips; image messages never do, short of a path containing the word.
+  const media = /(^|\s)(audio|videos?)\b/.test(message);
   if (message.includes("only supported by the cloudflare provider")) {
     return [
       "Pass --provider cloudflare, with CLOUDFLARE_AUTH_TOKEN and CLOUDFLARE_ACCOUNT_ID set.",
-      `Example: ${PROGRAM} yesno "What is in this photo?" --image photo.jpg --provider cloudflare`,
+      media
+        ? `Example: ${OMNI_EXAMPLE}`
+        : `Example: ${PROGRAM} yesno "What is in this photo?" --image photo.jpg --provider cloudflare`,
+    ];
+  }
+  if (message.includes("only accepted by the clef-omni model")) {
+    return [
+      "Pass --model clef-omni. clef and clef-flash take text and images only.",
+      `Example: ${OMNI_EXAMPLE}`,
     ];
   }
   if (message.includes("request body is")) {
-    return ["Clef accepts a request body of at most 13 MiB, images included."];
+    return ["Clef and Clef-flash accept a request body of at most 13 MiB, images included."];
+  }
+  if (media) {
+    return [
+      "Pass a local WAV or MP3 file to --audio, or a local MP4 or WebM file to --video. Remote URLs are not accepted.",
+      "Clef-omni allows 4 audio clips (8 MiB and 300 seconds each) and 2 videos (16 MiB and 60 seconds each), 16 MiB together.",
+      `Example: ${OMNI_EXAMPLE}`,
+    ];
   }
   return [
     "Pass a local PNG, JPEG, or WebP file. Remote URLs are not accepted.",
-    "Clef allows 4 images: 4 MiB and 16 megapixels each, 8 MiB total, and a 13 MiB request body.",
+    "Clef allows 4 images: 4 MiB and 16 megapixels each, 8 MiB total, and a 13 MiB request body (clef and clef-flash).",
     `Example: ${PROGRAM} yesno "What is in this photo?" --image photo.jpg`,
   ];
 }

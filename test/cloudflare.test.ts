@@ -88,14 +88,17 @@ describe("CloudflareProvider", () => {
     const provider = new CloudflareProvider({ apiKey: "k", accountId: ACCOUNT });
     expect(provider.urlFor("clef")).toBe(`${RUN_URL}/@cf/cloudflare/clef`);
     expect(provider.urlFor("clef-flash")).toBe(`${RUN_URL}/@cf/cloudflare/clef-flash`);
+    expect(provider.urlFor("clef-omni")).toBe(`${RUN_URL}/@cf/cloudflare/clef-omni`);
   });
 
   it("resolves Workers AI model ids to the body's model selector", () => {
     const provider = new CloudflareProvider({ apiKey: "k", accountId: ACCOUNT });
     expect(provider.resolveModel(undefined)).toBe("clef");
     expect(provider.resolveModel("clef-flash")).toBe("clef-flash");
+    expect(provider.resolveModel("clef-omni")).toBe("clef-omni");
     expect(provider.resolveModel("@cf/cloudflare/clef")).toBe("clef");
     expect(provider.resolveModel("@cf/cloudflare/clef-flash")).toBe("clef-flash");
+    expect(provider.resolveModel("@cf/cloudflare/clef-omni")).toBe("clef-omni");
   });
 
   it("reads the account id from the environment", async () => {
@@ -206,6 +209,25 @@ describe("Client with Cloudflare", () => {
     for (const request of transport.requests) {
       expect(request.url).toBe(`${RUN_URL}/@cf/cloudflare/clef-flash`);
       expect(JSON.parse(request.body).model).toBe("clef-flash");
+    }
+  });
+
+  it("sends clef-omni to its own URL with the clef-omni selector", async () => {
+    const transport = new FakeTransport([
+      [200, envelope({ ...decision, model: "clef-omni" })],
+      [200, envelope({ ...decision, model: "clef-omni" })],
+    ]);
+    const omni = cloudflareClient(transport, { model: "clef-omni" });
+    expect(omni.model).toBe("clef-omni");
+    await omni.ask({ state: "x", questions });
+    await cloudflareClient(transport, { model: "@cf/cloudflare/clef-omni" }).ask({ state: "x", questions });
+
+    for (const request of transport.requests) {
+      expect(request.url).toBe(`${RUN_URL}/@cf/cloudflare/clef-omni`);
+      // A text-only request carries exactly the three Jev fields, no empty media arrays.
+      expect(request.body).toBe(
+        JSON.stringify({ model: "clef-omni", state: "x", questions: JSON.parse(JSON.stringify(questions)) })
+      );
     }
   });
 

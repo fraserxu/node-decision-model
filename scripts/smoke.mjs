@@ -6,6 +6,11 @@
 //   npm run build && node --env-file=.env scripts/smoke.mjs
 //   npm run build && node --env-file=.env scripts/smoke.mjs --provider open-router
 //   npm run build && node --env-file=.env scripts/smoke.mjs --provider cloudflare --model clef-flash
+//   npm run build && node --env-file=.env scripts/smoke.mjs --provider cloudflare --model clef-omni
+//
+// Cloudflare models: clef (default), clef-flash, clef-omni. The text request
+// below works on all three; clef-omni also takes audio and video through
+// `ask({ audio, videos })`, which this script does not exercise.
 
 import { Client, choice, noul, score, ApiError } from "../dist/index.js";
 

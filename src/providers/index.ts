@@ -4,7 +4,7 @@ import { CloudflareProvider } from "./cloudflare.js";
 import { OpenRouterProvider } from "./open-router.js";
 import { TypesafeProvider } from "./typesafe.js";
 
-export { Provider, type ProviderOptions } from "./base.js";
+export { Provider, type ProviderOptions, type RequestBodyArgs } from "./base.js";
 export { CloudflareProvider, type CloudflareProviderOptions } from "./cloudflare.js";
 export { OpenRouterProvider } from "./open-router.js";
 export { TypesafeProvider } from "./typesafe.js";

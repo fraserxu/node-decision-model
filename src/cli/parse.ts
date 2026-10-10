@@ -36,6 +36,10 @@ export interface CommonOptions {
   dryRun: boolean;
   /** `-i` / `--image`: local PNG, JPEG, or WebP files for Cloudflare Clef. */
   images: string[];
+  /** `--audio`: local WAV or MP3 files for Cloudflare clef-omni. */
+  audio: string[];
+  /** `--video`: local MP4 or WebM files for Cloudflare clef-omni. */
+  videos: string[];
 }
 
 export interface AskOptions extends CommonOptions {
@@ -91,6 +95,8 @@ const COMMON_OPTIONS = {
   "no-color": { type: "boolean", default: false },
   "dry-run": { type: "boolean", default: false },
   image: { type: "string", short: "i", multiple: true },
+  audio: { type: "string", multiple: true },
+  video: { type: "string", multiple: true },
   help: { type: "boolean", short: "h", default: false },
 } as const;
 
@@ -130,6 +136,8 @@ interface CommonValues {
   "no-color"?: boolean | undefined;
   "dry-run"?: boolean | undefined;
   image?: string[] | undefined;
+  audio?: string[] | undefined;
+  video?: string[] | undefined;
   help?: boolean | undefined;
 }
 
@@ -361,6 +369,8 @@ function commonOptions(values: CommonValues): CommonOptions {
     noColor: values["no-color"] === true,
     dryRun: values["dry-run"] === true,
     images: values.image ?? [],
+    audio: values.audio ?? [],
+    videos: values.video ?? [],
   };
 }
 

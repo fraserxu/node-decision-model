@@ -1,6 +1,7 @@
-import { InvalidResponse } from "../errors.js";
+import { InvalidResponse, RequestError } from "../errors.js";
 import { assertClefBodySize, encodeClefImages } from "../images.js";
-import { Provider, type ProviderOptions } from "./base.js";
+import { encodeClefMedia } from "../media.js";
+import { Provider, type ProviderOptions, type RequestBodyArgs } from "./base.js";
 
 export interface CloudflareProviderOptions extends ProviderOptions {
   /** Overrides CLOUDFLARE_ACCOUNT_ID. */
@@ -9,11 +10,16 @@ export interface CloudflareProviderOptions extends ProviderOptions {
 
 const ACCOUNT_ID_ENV_VAR = "CLOUDFLARE_ACCOUNT_ID";
 
+/** The only Clef model whose schema has `audio` and `videos`. */
+const OMNI = "clef-omni";
+
 // The Workers AI model ids map to the selector the request body carries:
-// "clef" runs @cf/cloudflare/clef and "clef-flash" runs @cf/cloudflare/clef-flash.
+// "clef" runs @cf/cloudflare/clef, "clef-flash" runs @cf/cloudflare/clef-flash,
+// and "clef-omni" runs @cf/cloudflare/clef-omni.
 const ALIASES: Readonly<Record<string, string>> = Object.freeze({
   "@cf/cloudflare/clef": "clef",
   "@cf/cloudflare/clef-flash": "clef-flash",
+  "@cf/cloudflare/clef-omni": OMNI,
 });
 
 function messagesFrom(errors: unknown): string {
@@ -31,8 +37,9 @@ function messagesFrom(errors: unknown): string {
 /**
  * Cloudflare's Clef decision models on Workers AI. The request body is the
  * Jev wire format plus an optional `images` array of embedded PNG, JPEG, or
- * WebP; each model has its own URL under the account, and the REST API wraps
- * the decision in a `{ success, result, errors }` envelope.
+ * WebP, and for clef-omni `audio` and `videos` arrays of data URLs; each
+ * model has its own URL under the account, and the REST API wraps the
+ * decision in a `{ success, result, errors }` envelope.
  */
 export class CloudflareProvider extends Provider {
   private providerAccountId: string | null;
@@ -100,23 +107,39 @@ export class CloudflareProvider extends Provider {
   }
 
   /**
-   * The Jev body plus Clef's `images` array. Images are embedded
-   * `{ content_type, base64 }` objects; the model places them before the
-   * state. Absent when no image was given, so a text request is unchanged.
+   * The Jev body plus Clef's media arrays. Images are embedded
+   * `{ content_type, base64 }` objects on every model; audio and videos are
+   * `data:` URLs and only clef-omni takes them. Each array is absent when
+   * nothing was given, so a text request is unchanged.
    */
-  override requestBody(args: Parameters<Provider["requestBody"]>[0]): string {
+  override requestBody(args: RequestBodyArgs): string {
     const images = args.images ?? [];
-    const payload =
-      images.length === 0
-        ? { model: args.model, state: args.state, questions: args.questions }
-        : {
-            model: args.model,
-            state: args.state,
-            questions: args.questions,
-            images: encodeClefImages(images),
-          };
+    const audio = args.audio ?? [];
+    const videos = args.videos ?? [];
+
+    if (args.model !== OMNI) {
+      const refused = audio.length > 0 ? "audio is" : videos.length > 0 ? "videos are" : null;
+      if (refused !== null) {
+        throw new RequestError(
+          `${refused} only accepted by the ${OMNI} model, not ${args.model}; pass model "${OMNI}" (--model ${OMNI})`
+        );
+      }
+    }
+
+    const payload: Record<string, unknown> = {
+      model: args.model,
+      state: args.state,
+      questions: args.questions,
+    };
+    if (images.length > 0) payload.images = encodeClefImages(images);
+    if (audio.length > 0 || videos.length > 0) Object.assign(payload, encodeClefMedia({ audio, videos }));
     const body = JSON.stringify(payload);
-    assertClefBodySize(body);
+
+    // The 13 MiB whole-body cap is documented for clef and clef-flash only.
+    // The clef-omni docs give no body cap, and its decoded limits (8 MiB of
+    // images plus 16 MiB of audio and video) add up to more than 13 MiB, so
+    // clef-omni is held to those decoded limits instead.
+    if (args.model !== OMNI) assertClefBodySize(body);
     return body;
   }
 
