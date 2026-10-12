@@ -87,6 +87,23 @@ describe("Provider base behaviour", () => {
     expect(headers["User-Agent"]).toBe(`node-decision-model/${VERSION}`);
   });
 
+  it("refuses the Celeris-only options and the Cloudflare-only media", () => {
+    const provider = new TypesafeProvider({ apiKey: "k" });
+    const args = { model: "jev-latest", state: "x", questions: { q: { type: "noul" as const, instructions: "?" } } };
+    expect(() => provider.requestBody({ ...args, explain: true })).toThrow(
+      /explain is only supported by the celeris provider, not typesafe/
+    );
+    expect(() => provider.requestBody({ ...args, maxSoftTokens: 280 })).toThrow(
+      /maxSoftTokens is only supported by the celeris provider, not typesafe/
+    );
+    expect(() => provider.requestBody({ ...args, images: ["photo.png"] })).toThrow(
+      /images are only supported by the cloudflare provider or the celeris provider, not typesafe/
+    );
+    expect(() => provider.requestBody({ ...args, audio: ["clip.wav"] })).toThrow(
+      /audio is only supported by the cloudflare provider \(model clef-omni\), not typesafe/
+    );
+  });
+
   it("serializes the request body with model, state, and questions", () => {
     const provider = new TypesafeProvider({ apiKey: "k" });
     const body = provider.requestBody({
@@ -147,15 +164,16 @@ describe("registry", () => {
 
   it("raises ConfigurationError for unknown names", () => {
     expect(() => buildProvider("mystery")).toThrow(ConfigurationError);
-    expect(() => buildProvider("mystery")).toThrow(/known providers: open-router, typesafe, cloudflare/);
+    expect(() => buildProvider("mystery")).toThrow(/known providers: open-router, typesafe, cloudflare, celeris/);
   });
 
   it("lists names and env vars in priority order", () => {
-    expect(providerNames()).toEqual(["open-router", "typesafe", "cloudflare"]);
+    expect(providerNames()).toEqual(["open-router", "typesafe", "cloudflare", "celeris"]);
     expect(providerEnvVars()).toEqual([
       "TYPESAFE_API_KEY",
       "OPENROUTER_API_KEY",
       "CLOUDFLARE_AUTH_TOKEN",
+      "CELERIS_API_KEY",
     ]);
   });
 });
@@ -174,9 +192,12 @@ describe("providerFromEnv", () => {
   });
 
   it("returns null with no keys", async () => {
-    await withEnv({ TYPESAFE_API_KEY: undefined, OPENROUTER_API_KEY: undefined, CLOUDFLARE_AUTH_TOKEN: undefined }, () => {
-      expect(providerFromEnv()).toBeNull();
-    });
+    await withEnv(
+      { TYPESAFE_API_KEY: undefined, OPENROUTER_API_KEY: undefined, CLOUDFLARE_AUTH_TOKEN: undefined, CELERIS_API_KEY: undefined },
+      () => {
+        expect(providerFromEnv()).toBeNull();
+      }
+    );
   });
 });
 

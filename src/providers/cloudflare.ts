@@ -113,6 +113,7 @@ export class CloudflareProvider extends Provider {
    * nothing was given, so a text request is unchanged.
    */
   override requestBody(args: RequestBodyArgs): string {
+    this.rejectExtensions(args);
     const images = args.images ?? [];
     const audio = args.audio ?? [];
     const videos = args.videos ?? [];

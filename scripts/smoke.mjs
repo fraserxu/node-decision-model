@@ -1,12 +1,14 @@
 // Live end-to-end check against the real API, through the built bundle in
 // dist/ (run `npm run build` first). Reads TYPESAFE_API_KEY,
-// OPENROUTER_API_KEY, or CLOUDFLARE_AUTH_TOKEN with CLOUDFLARE_ACCOUNT_ID from
-// the environment; pass --provider to force one and --model to pick a model.
+// OPENROUTER_API_KEY, CLOUDFLARE_AUTH_TOKEN with CLOUDFLARE_ACCOUNT_ID, or
+// CELERIS_API_KEY from the environment; pass --provider to force one and
+// --model to pick a model. --explain asks Celeris for a reason per answer.
 //
 //   npm run build && node --env-file=.env scripts/smoke.mjs
 //   npm run build && node --env-file=.env scripts/smoke.mjs --provider open-router
 //   npm run build && node --env-file=.env scripts/smoke.mjs --provider cloudflare --model clef-flash
 //   npm run build && node --env-file=.env scripts/smoke.mjs --provider cloudflare --model clef-omni
+//   npm run build && node --env-file=.env scripts/smoke.mjs --provider celeris --explain
 //
 // Cloudflare models: clef (default), clef-flash, clef-omni. The text request
 // below works on all three; clef-omni also takes audio and video through
@@ -18,6 +20,7 @@ const providerFlag = process.argv.indexOf("--provider");
 const provider = providerFlag === -1 ? undefined : process.argv[providerFlag + 1];
 const modelFlag = process.argv.indexOf("--model");
 const model = modelFlag === -1 ? undefined : process.argv[modelFlag + 1];
+const explain = process.argv.includes("--explain");
 
 const client = new Client({ ...(provider ? { provider } : {}), ...(model ? { model } : {}) });
 console.log(`provider: ${client.provider.name}  model: ${client.model}  url: ${client.provider.urlFor(client.model)}`);
@@ -39,6 +42,7 @@ try {
       }),
       severity: score("How severe is this issue?", ["cosmetic", "minor", "major", "critical"]),
     },
+    ...(explain ? { explain: true } : {}),
   });
 
   console.log(`ok in ${Math.round(performance.now() - started)}ms`);
@@ -47,6 +51,7 @@ try {
   console.log("urgent:", response.answers.urgent);
   console.log("team:", response.answers.team);
   console.log("severity:", response.answers.severity);
+  if (explain) console.log("explanations:", response.explanations);
 } catch (error) {
   if (error instanceof ApiError) {
     console.error(`${error.name} (${error.status}):`, error.body);

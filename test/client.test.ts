@@ -89,10 +89,13 @@ describe("Client construction", () => {
   });
 
   it("raises ConfigurationError naming both env vars when nothing is configured", async () => {
-    await withEnv({ TYPESAFE_API_KEY: undefined, OPENROUTER_API_KEY: undefined, CLOUDFLARE_AUTH_TOKEN: undefined }, () => {
-      expect(() => new Client()).toThrow(ConfigurationError);
-      expect(() => new Client()).toThrow(/TYPESAFE_API_KEY, OPENROUTER_API_KEY/);
-    });
+    await withEnv(
+      { TYPESAFE_API_KEY: undefined, OPENROUTER_API_KEY: undefined, CLOUDFLARE_AUTH_TOKEN: undefined, CELERIS_API_KEY: undefined },
+      () => {
+        expect(() => new Client()).toThrow(ConfigurationError);
+        expect(() => new Client()).toThrow(/TYPESAFE_API_KEY, OPENROUTER_API_KEY, CLOUDFLARE_AUTH_TOKEN, CELERIS_API_KEY/);
+      }
+    );
   });
 
   it("raises ConfigurationError when a named provider has no key", async () => {

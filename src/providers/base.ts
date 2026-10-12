@@ -9,14 +9,45 @@ export interface ProviderOptions {
 }
 
 /**
- * What `requestBody` turns into the wire body. The media arrays are present
- * only when they have something in them; only the Cloudflare provider
- * accepts any of them.
+ * Per-request options that only the Celeris provider understands. Each key is
+ * present only when it was asked for, so every other provider can tell a
+ * request that needs them apart from one that does not.
  */
-export interface RequestBodyArgs extends MediaInputs {
+export interface RequestExtensions {
+  /** Ask for a one-sentence reason per answer (`x_celeris.explain`). */
+  explain?: boolean;
+  /**
+   * The resolution images are read at, roughly the input tokens each costs:
+   * 70, 140, 280 (the default), 560, or 1120 (`x_celeris.max_soft_tokens`).
+   * Only matters when images are sent.
+   */
+  maxSoftTokens?: number;
+}
+
+/**
+ * What `requestBody` turns into the wire body. The media arrays are present
+ * only when they have something in them; Cloudflare accepts all of them and
+ * Celeris accepts images. The extensions are present only when set, and only
+ * Celeris accepts them.
+ */
+export interface RequestBodyArgs extends MediaInputs, RequestExtensions {
   model: string;
   state: unknown;
   questions: Questions;
+}
+
+/**
+ * Keeps only the extensions that were set, so a request without them is
+ * built exactly as it was before they existed.
+ */
+export function presentExtensions(inputs: {
+  explain?: boolean | undefined;
+  maxSoftTokens?: number | undefined;
+}): RequestExtensions {
+  const extensions: RequestExtensions = {};
+  if (inputs.explain === true) extensions.explain = true;
+  if (inputs.maxSoftTokens !== undefined) extensions.maxSoftTokens = inputs.maxSoftTokens;
+  return extensions;
 }
 
 function parseInteger(value: unknown): number | null {
@@ -128,8 +159,11 @@ export abstract class Provider {
   }
 
   requestBody(args: RequestBodyArgs): string {
+    this.rejectExtensions(args);
     if (args.images != null && args.images.length > 0) {
-      throw new RequestError(`images are only supported by the cloudflare provider, not ${this.name}`);
+      throw new RequestError(
+        `images are only supported by the cloudflare provider or the celeris provider, not ${this.name}`
+      );
     }
     if (args.audio != null && args.audio.length > 0) {
       throw new RequestError(
@@ -145,11 +179,44 @@ export abstract class Provider {
   }
 
   /**
+   * Throws RequestError when `explain` or `maxSoftTokens` was asked of a
+   * provider without them. Celeris, which has both, does not call this.
+   */
+  protected rejectExtensions(args: RequestExtensions): void {
+    const refused =
+      args.explain === true ? "explain is" : args.maxSoftTokens !== undefined ? "maxSoftTokens is" : null;
+    if (refused !== null) {
+      throw new RequestError(
+        `${refused} only supported by the celeris provider, not ${this.name}; pass provider "celeris" (--provider celeris)`
+      );
+    }
+  }
+
+  /**
    * Returns the decision object inside a parsed response body. Override when
    * the provider wraps it in an envelope.
    */
   unwrap(parsed: Record<string, unknown>): unknown {
     return parsed;
+  }
+
+  /**
+   * Detail for a non-2xx response read from its body, appended to the error
+   * message, or null when the body says nothing the status does not. Override
+   * when the provider has a documented error envelope.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  errorDetail(status: number, body: string | null): string | null {
+    return null;
+  }
+
+  /**
+   * One-sentence reasons keyed by question id, read from a parsed decision.
+   * Empty unless the provider was asked to explain and did.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  explanations(parsed: unknown): Record<string, string> {
+    return {};
   }
 
   usage(parsed: unknown): Usage {

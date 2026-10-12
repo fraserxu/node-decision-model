@@ -4,15 +4,16 @@ The decision-model interface for Node.js. Decision models answer typed
 questions about a state with calibrated probabilities instead of generating
 text. This package talks to them through one `Client` with a provider behind
 it: OpenRouter by default, Typesafe's native API as a second door,
-Cloudflare's Clef models on Workers AI as a third, more providers as labs
-ship them. No runtime dependencies; Node 20+.
+Cloudflare's Clef models on Workers AI as a third, Celeris's
+celeris-1-decision as a fourth, more providers as labs ship them. No runtime
+dependencies; Node 20+.
 
 ## At a glance
 
 |                     |                                                                                           |
 | ------------------- | ----------------------------------------------------------------------------------------- |
 | Install             | `npm install node-decision-model`                                                         |
-| Auth                | `TYPESAFE_API_KEY`, `OPENROUTER_API_KEY`, or `CLOUDFLARE_AUTH_TOKEN` with `CLOUDFLARE_ACCOUNT_ID` in the environment, for the library and the CLI |
+| Auth                | `TYPESAFE_API_KEY`, `OPENROUTER_API_KEY`, `CLOUDFLARE_AUTH_TOKEN` with `CLOUDFLARE_ACCOUNT_ID`, or `CELERIS_API_KEY` in the environment, for the library and the CLI |
 | Library entry point | `new Client().ask({ state, questions })`                                                  |
 | CLI entry point     | `npx decision-model yesno "Is this urgent?" -f issue.json`                                |
 | Question types      | `noul` (yes/no), `choice` (pick one of up to 255 labels), `score` (2 to 10 rubric levels) |
@@ -60,7 +61,8 @@ response.usage.inputTokens; // => 120
 `new Client()` with no arguments reads the environment: `TYPESAFE_API_KEY`
 selects Typesafe, otherwise `OPENROUTER_API_KEY` selects OpenRouter,
 otherwise `CLOUDFLARE_AUTH_TOKEN` together with `CLOUDFLARE_ACCOUNT_ID`
-selects Cloudflare. With none set it throws `ConfigurationError` naming them. `getDefaultClient()`
+selects Cloudflare, otherwise `CELERIS_API_KEY` selects Celeris. With none
+set it throws `ConfigurationError` naming them. `getDefaultClient()`
 memoizes one such default client; `setDefaultClient(undefined)` resets it.
 
 CommonJS works the same way:
@@ -75,10 +77,11 @@ The package installs a `decision-model` executable. It is the quickest way
 to ask a question from a shell, a script, or an agent tool call.
 
 It needs an API key in the environment: `TYPESAFE_API_KEY` for Typesafe,
-`OPENROUTER_API_KEY` for OpenRouter, or `CLOUDFLARE_AUTH_TOKEN` and
-`CLOUDFLARE_ACCOUNT_ID` for Cloudflare. Typesafe wins when several are set,
-then OpenRouter, then Cloudflare, and `--provider` picks one explicitly. `decision-model providers` shows which
-keys are set and which provider will be used.
+`OPENROUTER_API_KEY` for OpenRouter, `CLOUDFLARE_AUTH_TOKEN` and
+`CLOUDFLARE_ACCOUNT_ID` for Cloudflare, or `CELERIS_API_KEY` for Celeris.
+Typesafe wins when several are set, then OpenRouter, then Cloudflare, then
+Celeris, and `--provider` picks one explicitly. `decision-model providers`
+shows which keys are set and which provider will be used.
 
 ```bash
 export TYPESAFE_API_KEY=...
@@ -163,17 +166,44 @@ file or stdin; the operating system caps a single argument.
 
 ### Passing an image
 
-Cloudflare Clef, Clef-flash, and Clef-omni can see a local photo. Repeat `-i`
-/ `--image` for up to four PNG, JPEG, or WebP files. Remote URLs are not
-accepted, and other providers reject the flag.
+Cloudflare Clef, Clef-flash, and Clef-omni can see a local photo, and so can
+Celeris. Repeat `-i` / `--image` for each file. Remote URLs are not accepted,
+and other providers reject the flag.
 
 ```bash
 decision-model yesno "Is the total legible?" --image receipt.jpg -s "Receipt from today"
 decision-model choose "What is this?" cat dog other -i photo.png -i photo2.jpg --provider cloudflare
+decision-model choose "What is this?" cat dog other -i photo.png --provider celeris
 ```
 
-Each image may be 4 MiB and 16 megapixels. Together they may be 8 MiB, and on
-`clef` and `clef-flash` the whole request body 13 MiB.
+On Clef each image may be PNG, JPEG, or WebP, 4 MiB and 16 megapixels; up to
+four together may be 8 MiB, and on `clef` and `clef-flash` the whole request
+body 13 MiB. On Celeris each image may be PNG or JPEG and 25 megapixels; up to
+eight go in one request, and the whole request body may be 8 MiB. Celeris
+names each image after its file stem (`receipt.jpg` is `receipt`), with `_2`,
+`_3` added when two files share a name; see [Celeris](#celeris) below.
+
+### Asking for a reason
+
+Celeris can say why, in one sentence per answer. `--explain` asks for it and
+prints the sentence on its own line under the answer; `--json` adds an
+`explanations` map and an `explanation` field on each answer. Other
+providers reject the flag.
+
+```bash
+decision-model yesno "Is this urgent?" -f issue.json --explain --provider celeris
+```
+
+```
+yes  96%
+     Every checkout has failed since 09:00 and revenue is at zero.
+celeris-1-decision · 301 in / 41 out tokens · 1.3s
+```
+
+With `--explain` a request may carry 64 questions; without it, 512.
+`--max-soft-tokens <n>`, also Celeris only, sets the resolution each `--image`
+is read at: 70, 140, 280 (the default), 560, or 1120, costing about that many
+input tokens per image. It does nothing without images.
 
 ### Passing audio and video
 
@@ -305,9 +335,13 @@ shape the library returns; the single-question commands use the id `answer`.
       "probabilities": { "0": 0, "1": 0, "2": 0.01, "3": 0.99 },
       "legend": { "0": "cosmetic", "1": "minor", "2": "major", "3": "critical" }
     }
-  }
+  },
+  "explanations": {}
 }
 ```
+
+`explanations` is filled, and each answer gains an `explanation` string, when
+Celeris was asked with `--explain`.
 
 Under `--json` a failure is one JSON line on stderr, and the exit code is
 unchanged:
@@ -331,14 +365,16 @@ check the shape of its questions for free.
 | `--no-color`         | Plain text even in a terminal. `NO_COLOR` does the same; `FORCE_COLOR` forces colour        |
 | `--threshold <p>`    | `yesno` only: where yes becomes no. Default 0.5                                             |
 | `--check`            | `yesno` only: print nothing; exit 0 for yes and 1 for no                                    |
-| `--provider <name>`  | `open-router`, `typesafe`, or `cloudflare`. Default: from the environment                   |
+| `--provider <name>`  | `open-router`, `typesafe`, `cloudflare`, or `celeris`. Default: from the environment        |
 | `--model <name>`     | Model name or alias, e.g. `clef-flash` or `clef-omni`. Default: the provider default        |
 | `--base-url <url>`   | Override the provider base URL                                                              |
 | `--timeout <ms>`     | Per-attempt timeout in milliseconds. Default: 5000                                          |
 | `--max-retries <n>`  | Retries after the first attempt. Default: 2                                                 |
-| `-i, --image <path>` | Cloudflare Clef only: a local PNG, JPEG, or WebP file; repeatable, up to 4. No remote URLs   |
+| `-i, --image <path>` | Cloudflare Clef and Celeris: a local image file; repeatable, up to 4 (Clef) or 8 (Celeris). No remote URLs |
 | `--audio <path>`     | Cloudflare Clef-omni only: a local WAV or MP3 file; repeatable, up to 4. No remote URLs      |
 | `--video <path>`     | Cloudflare Clef-omni only: a local MP4 or WebM file; repeatable, up to 2. No remote URLs     |
+| `--explain`          | Celeris only: a one-sentence reason under each answer, and in `--json`                      |
+| `--max-soft-tokens <n>` | Celeris only: the resolution each image is read at, 70, 140, 280 (default), 560, or 1120 |
 
 Colour and bars appear only when stdout is a terminal, so piped output and
 logs stay plain. Nothing ever prompts.
@@ -579,11 +615,164 @@ the token alone, `decision-model providers` shows the key as `incomplete`.
 A `baseUrl` override (for example an AI Gateway URL ending in `/ai/run`)
 replaces the account URL, so it needs no account id.
 
+### Celeris
+
+Celeris's decision model, `celeris-1-decision`, speaks the System One wire
+format Typesafe uses, so the same questions and answers work unchanged. What
+System One has no field for goes in an `x_celeris` object: a one-sentence
+reason per answer, images, and the resolution images are read at.
+
+```ts
+// process.env.CELERIS_API_KEY
+const client = new Client({ provider: "celeris" });
+
+// or pass the key directly
+import { CelerisProvider } from "node-decision-model";
+const client = new Client({ provider: new CelerisProvider({ apiKey: "ck_..." }) });
+```
+
+```bash
+export CELERIS_API_KEY=ck_...
+decision-model yesno "Is this urgent?" -f issue.json --provider celeris --explain
+```
+
+| Environment variable | Meaning                                              |
+| -------------------- | ---------------------------------------------------- |
+| `CELERIS_API_KEY`    | API key, starts with `ck_`, sent as a Bearer token   |
+
+Requests go to
+`https://inference.celeris.ai/celeris-1-decision/v1/systemone`. The model is
+a segment of the path as well as the body's `model`, and the client keeps the
+two together: `urlFor(model)` is `<base URL>/<model>/v1/systemone`, with the
+base URL `https://inference.celeris.ai` by default. A `baseUrl` override or
+`--base-url` replaces that host part only, so a proxy at
+`https://proxy.example` is called at
+`https://proxy.example/celeris-1-decision/v1/systemone`. There is no
+environment variable for the base URL, as for the other providers. The
+default and only model is `celeris-1-decision`; there are no aliases. The
+environment selects Celeris last, only when `CELERIS_API_KEY` is the only
+credential set; `--provider celeris` and `provider: "celeris"` always work.
+Usage reports `inputTokens` and `outputTokens`; `cost` is `null`.
+
+Celeris does not document a server-generated request id header.
+`response.requestId` (and the `requestId` in the CLI's `--json` failure line)
+is read from an `x-request-id` header as a best effort, and is `null` when
+there is none. What Celeris does document is an optional caller-supplied
+`X-Client-Trace-Id` request header that it echoes back on the response, and
+a `ref` field in error bodies. The client does not send the trace header
+itself (a subclass overriding `headers()` or a custom `transport` can add
+it), but it does include `ref` in the error message, see below.
+
+#### Explanations
+
+`explain: true` asks for a reason per answer. The request carries
+`x_celeris.explain`, and the response's `x_celeris.explanations` comes back
+as `response.explanations`, keyed by question id, and as `explanation` on
+each answer. Celeris answers at most 64 questions per request with `explain`
+(512 without), and the client checks that before sending. Any other provider
+throws `RequestError` when `explain` is set; the CLI flag is `--explain`.
+
+```ts
+const response = await client.ask({
+  state: { title: "Server returns 500 on checkout" },
+  questions: { urgent: noul("Is this urgent?") },
+  explain: true,
+});
+
+response.answers.urgent.noul; // => 0.96
+response.answers.urgent.explanation; // => "Every checkout has failed since 09:00."
+response.explanations.urgent; // the same sentence
+```
+
+#### Images
+
+Pass `images` to `ask` as for Clef: a local path, a `Uint8Array` of PNG or
+JPEG bytes, or a `data:image/png;base64,...` or `data:image/jpeg;base64,...`
+URL. WebP, any other format, and remote URLs are rejected. The request sends
+them as `x_celeris.images`, a map of names to data URLs. A file is named by
+its stem with every character outside letters, digits, and underscores
+replaced by one underscore (`My Photo (2).jpg` is `My_Photo_2`); bytes and
+data URLs are named by position, `image1`, `image2`, ...; a name already
+taken gets `_2`, `_3`, and so on. Up to 8 images, each at most 25 megapixels,
+and a request body of at most 8 MiB including the base64. The CLI flag is
+`--image` / `-i`.
+
+```ts
+const response = await client.ask({
+  state: "Receipt from today",
+  images: ["receipt.jpg"], // sent as x_celeris.images.receipt
+  questions: { legible: noul("Is the total legible?") },
+});
+```
+
+Audio and video are not accepted: `ask({ audio })` or `ask({ videos })` with
+Celeris throws `RequestError`, as `--audio` and `--video` do in the CLI.
+
+#### Image resolution
+
+`maxSoftTokens` sets `x_celeris.max_soft_tokens`, the resolution every image
+in the request is read at. It is not a reasoning budget: each image costs
+roughly that many input tokens, so a lower value is cheaper and suits
+classification, and a higher one keeps small text legible for OCR. The
+allowed values are 70, 140, 280 (what the model uses when it is not set),
+560, and 1120; anything else throws `RequestError` before the request is
+sent. It only matters when images are sent; on a text-only request it is
+passed through and has no effect. Other providers throw `RequestError` when
+it is set. The CLI flag is `--max-soft-tokens <n>`. The exported
+`CELERIS_MAX_SOFT_TOKENS` lists the values and
+`CELERIS_DEFAULT_MAX_SOFT_TOKENS` is 280.
+
+`x_celeris` is sent only when at least one of `explain`, `images`, or
+`maxSoftTokens` is set; a plain request is byte for byte the System One body.
+
+#### Limits and errors
+
+| Limit                        | Value                                      | Exported as                       |
+| ---------------------------- | ------------------------------------------ | --------------------------------- |
+| Questions per request        | 512, or 64 with `explain`                  | `CELERIS_MAX_QUESTIONS`, `CELERIS_MAX_EXPLAINED_QUESTIONS` |
+| Images per request           | 8                                          | `CELERIS_MAX_IMAGES`              |
+| Pixels per image             | 25,000,000                                 | `CELERIS_MAX_PIXELS`              |
+| Request body                 | 8 MiB, images included                     | `CELERIS_MAX_BODY_BYTES`          |
+| `maxSoftTokens`              | 70, 140, 280, 560, 1120                    | `CELERIS_MAX_SOFT_TOKENS`         |
+
+Every limit is checked before anything is sent, and a violation is a
+`RequestError` (exit code 2 in the CLI, with a hint).
+
+Celeris returns errors in an OpenAI-style envelope,
+`{ "error": { "message", "type", "code", "ref" } }`, where `ref` is an
+optional short reference such as `q-d3` to quote to Celeris support. The
+usual classes are thrown by status, and the envelope's message, code, and
+`ref` (when present) are appended to the error message, for example
+`unauthorized: Invalid API key provided. (code invalid_api_key, ref q-a1)`;
+the whole body stays in `error.body`. 401 is `Unauthorized`, 402
+(`insufficient_quota`) an `ApiError`, 404 an `ApiError`, 413
+`PayloadTooLarge`, 422 `UnprocessableEntity` with the validation detail and
+no retry, 429 (`rate_limit_exceeded`, `service_busy`) `RateLimited` and
+retried after `Retry-After`, and 5xx retried like every provider.
+
+#### Verified vs. unconfirmed
+
+Confirmed against docs.celeris.ai (the Authentication, Decisions, and Errors
+pages): the `Authorization: Bearer ck_...` header; the `CELERIS_API_KEY`
+variable name, which Celeris's own examples use; the `/<model>/v1/systemone`
+endpoint and the `x_celeris` fields (`explain`, `images`, `max_soft_tokens`,
+`explanations`); the limits (512 questions, 64 with `explain`, 8 images at 25
+megapixels each, an 8 MiB body, and `max_soft_tokens` of 70, 140, 280, 560,
+or 1120); and the `{ "error": { "message", "type", "code", "ref" } }`
+envelope.
+
+Not yet confirmed against a live successful call: this release was tested
+with mocked HTTP only. A request with an invalid key did get Celeris's
+documented 401 `invalid_api_key` envelope from the live endpoint, which
+confirms the URL, the auth header, and the error envelope, but not the
+success body. The `x-request-id` header is undocumented and may never be
+sent, and the exact shape of a 422 body has not been observed.
+
 ### Options
 
 ```ts
 new Client({
-  provider: "typesafe", // "open-router", "typesafe", "cloudflare", or a Provider instance
+  provider: "typesafe", // "open-router", "typesafe", "cloudflare", "celeris", or a Provider instance
   apiKey: undefined, // overrides the provider's env var
   model: undefined, // undefined means the provider default; see aliases below
   baseUrl: undefined, // overrides the provider base URL
@@ -622,16 +811,22 @@ is whatever the provider returned.
 | `"@cf/cloudflare/clef-omni"`  | `clef-omni`      | `.../@cf/cloudflare/clef-omni`  |
 | anything else                 | as given         | `.../@cf/cloudflare/<model>`    |
 
+Celeris has no aliases: `undefined` sends `celeris-1-decision` to
+`https://inference.celeris.ai/celeris-1-decision/v1/systemone`, and anything
+else is sent as given to `.../<model>/v1/systemone`.
+
 ### Writing a provider
 
 Extend `Provider` and implement the `name`, `envVar`, `defaultBaseUrl`,
 `endpointPath`, and `defaultModel` getters; optionally override `aliases`,
 `reportsCost`, and `requestIdHeader`. Override `headers()`, `requestBody()`
 (its argument type is exported as `RequestBodyArgs`; the base implementation
-rejects `images`, `audio`, and `videos`), `unwrap()`, or `usage()` when the
-wire format differs, `urlFor(model)` when each model has its own URL, and
-`missingConfiguration()` when the provider needs more than a key. Pass an
-instance as `provider`.
+rejects `images`, `audio`, `videos`, `explain`, and `maxSoftTokens`),
+`unwrap()`, or `usage()` when the wire format differs, `urlFor(model)` when
+each model has its own URL, `missingConfiguration()` when the provider needs
+more than a key, `errorDetail(status, body)` when a non-2xx body carries a
+message worth appending to the error, and `explanations(parsed)` when the
+response carries a reason per answer. Pass an instance as `provider`.
 
 ```ts
 import { Provider } from "node-decision-model";
@@ -715,10 +910,10 @@ them all. Catch the specific classes when you need to branch.
 | Error                 | Meaning                                                                                   |
 | --------------------- | ----------------------------------------------------------------------------------------- |
 | `ConfigurationError`  | No provider could be resolved, missing apiKey, unknown provider, or bad `retry` value     |
-| `RequestError`        | Questions map was empty, or an image, audio, or video input was invalid or not allowed     |
+| `RequestError`        | Questions map was empty, an image, audio, or video input was invalid or not allowed, a Celeris limit or option was wrong, or `explain` / `maxSoftTokens` went to another provider |
 | `TransportError`      | Network failure after retries, carries `causeError`                                       |
 | `TimeoutError`        | Timeout after retries (extends `TransportError`)                                          |
-| `ApiError`            | Non-2xx response, carries `status`, `body`, and `headers`                                 |
+| `ApiError`            | Non-2xx response, carries `status`, `body`, and `headers`; Celeris adds the envelope's message, code, and `ref` to the message |
 | `Unauthorized`        | 401                                                                                       |
 | `PayloadTooLarge`     | 413                                                                                       |
 | `UnprocessableEntity` | 422 (never retried)                                                                       |

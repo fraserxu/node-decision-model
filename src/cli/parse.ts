@@ -40,6 +40,10 @@ export interface CommonOptions {
   audio: string[];
   /** `--video`: local MP4 or WebM files for Cloudflare clef-omni. */
   videos: string[];
+  /** `--explain`: a one-sentence reason per answer, Celeris only. */
+  explain: boolean;
+  /** `--max-soft-tokens`: the resolution Celeris reads images at; the provider checks the value. */
+  maxSoftTokens: number | undefined;
 }
 
 export interface AskOptions extends CommonOptions {
@@ -97,6 +101,8 @@ const COMMON_OPTIONS = {
   image: { type: "string", short: "i", multiple: true },
   audio: { type: "string", multiple: true },
   video: { type: "string", multiple: true },
+  explain: { type: "boolean", default: false },
+  "max-soft-tokens": { type: "string" },
   help: { type: "boolean", short: "h", default: false },
 } as const;
 
@@ -138,6 +144,8 @@ interface CommonValues {
   image?: string[] | undefined;
   audio?: string[] | undefined;
   video?: string[] | undefined;
+  explain?: boolean | undefined;
+  "max-soft-tokens"?: string | undefined;
   help?: boolean | undefined;
 }
 
@@ -371,6 +379,8 @@ function commonOptions(values: CommonValues): CommonOptions {
     images: values.image ?? [],
     audio: values.audio ?? [],
     videos: values.video ?? [],
+    explain: values.explain === true,
+    maxSoftTokens: parseNonNegativeInteger("--max-soft-tokens", values["max-soft-tokens"]),
   };
 }
 

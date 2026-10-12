@@ -58,6 +58,8 @@ export interface NoulAnswer {
   /** Probability of yes, from 0 to 1. */
   readonly noul: number;
   readonly probabilities: Readonly<Record<string, number>>;
+  /** One sentence of reasoning, present only when Celeris was asked to explain. */
+  readonly explanation?: string;
 }
 
 /** The selected label with its calibrated distribution. */
@@ -70,6 +72,8 @@ export interface ChoiceAnswer<C extends ChoiceCriteria = ChoiceCriteria> {
    * approximately 1.
    */
   readonly probabilities: Readonly<Record<string, number>>;
+  /** One sentence of reasoning, present only when Celeris was asked to explain. */
+  readonly explanation?: string;
 }
 
 /** An expected score, which may fall between integer rubric levels. */
@@ -81,6 +85,8 @@ export interface ScoreAnswer {
   readonly probabilities: Readonly<Record<string, number>>;
   /** Rubric descriptions keyed by the same string level keys. */
   readonly legend: Readonly<Record<string, unknown>>;
+  /** One sentence of reasoning, present only when Celeris was asked to explain. */
+  readonly explanation?: string;
 }
 
 /** Any decision-model answer. */

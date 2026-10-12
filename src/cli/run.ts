@@ -14,7 +14,14 @@ import {
   providerNames,
   VERSION,
 } from "../index.js";
-import type { ClientOptions, MediaInputs, Provider, Question, Questions } from "../index.js";
+import type {
+  ClientOptions,
+  MediaInputs,
+  Provider,
+  Question,
+  Questions,
+  RequestExtensions,
+} from "../index.js";
 import { colorEnabled, createStyle } from "./color.js";
 import type { Style } from "./color.js";
 import {
@@ -166,12 +173,19 @@ async function perform(
   presentation: Presentation
 ): Promise<number> {
   const media = mediaOf(options);
+  const extensions = extensionsOf(options);
 
   if (options.dryRun) {
     const provider = providerForDryRun(options);
     let printed: string;
     try {
-      printed = formatDryRun({ provider, model: provider.resolveModel(options.model), ...request, media });
+      printed = formatDryRun({
+        provider,
+        model: provider.resolveModel(options.model),
+        ...request,
+        media,
+        extensions,
+      });
     } catch (error) {
       usageErrorForRequest(error);
     }
@@ -183,7 +197,7 @@ async function perform(
   const now = io.now ?? (() => performance.now());
   const started = now();
   try {
-    const response = await client.ask({ ...request, ...media }).catch(usageErrorForRequest);
+    const response = await client.ask({ ...request, ...media, ...extensions }).catch(usageErrorForRequest);
     const elapsedMs = Math.round(now() - started);
     const provider = client.provider.name;
 
@@ -213,7 +227,7 @@ async function perform(
       : EXIT_FAILED;
   } catch (error) {
     if (!(error instanceof DecisionModelError)) throw error;
-    report(io, options.json, describeFailure(error, client.retryPolicy));
+    report(io, options.json, describeFailure(error, client.retryPolicy, client.provider.requestIdHeader));
     return presentation.check ? EXIT_CHECK_FAILED : EXIT_FAILED;
   }
 }
@@ -225,6 +239,14 @@ function mediaOf(options: CommonOptions): MediaInputs {
   if (options.audio.length > 0) media.audio = options.audio;
   if (options.videos.length > 0) media.videos = options.videos;
   return media;
+}
+
+/** `--explain` and `--max-soft-tokens`, present only when given, so other providers see nothing to refuse. */
+function extensionsOf(options: CommonOptions): RequestExtensions {
+  const extensions: RequestExtensions = {};
+  if (options.explain) extensions.explain = true;
+  if (options.maxSoftTokens !== undefined) extensions.maxSoftTokens = options.maxSoftTokens;
+  return extensions;
 }
 
 function styleFor(io: CliIo, noColor: boolean): Style {
@@ -363,10 +385,11 @@ function namedProvider(name: string): Provider {
 
 /**
  * A request the provider refuses to build (an unreadable or oversized
- * --image, --audio, or --video, media for a provider or model without it, a
- * body over the Clef cap) is a usage error, exit 2: it is found before
- * anything is sent, and before a dry run prints a body the API would reject.
- * Anything else is rethrown.
+ * --image, --audio, or --video, media for a provider or model without it,
+ * --explain or --max-soft-tokens away from Celeris, a body over a provider's
+ * cap) is a usage error, exit 2: it is found before anything is sent, and
+ * before a dry run prints a body the API would reject. Anything else is
+ * rethrown.
  */
 function usageErrorForRequest(error: unknown): never {
   if (error instanceof RequestError) {
@@ -376,17 +399,30 @@ function usageErrorForRequest(error: unknown): never {
 }
 
 const OMNI_EXAMPLE = `${PROGRAM} yesno "Is the fan rattling?" --audio unit.wav --video fan.mp4 --provider cloudflare --model clef-omni`;
+const CELERIS_EXAMPLE = `${PROGRAM} yesno "Is this urgent?" --explain --provider celeris -f issue.json`;
+const CELERIS_IMAGE_LIMITS =
+  "Celeris allows 8 PNG or JPEG images, 25 megapixels each, and an 8 MiB request body.";
 
 function requestHints(message: string): string[] {
   // Media messages start with "audio" or "video" (the item label) or name
   // the clips; image messages never do, short of a path containing the word.
   const media = /(^|\s)(audio|videos?)\b/.test(message);
-  if (message.includes("only supported by the cloudflare provider")) {
+  if (message.includes("only supported by the celeris provider")) {
     return [
-      "Pass --provider cloudflare, with CLOUDFLARE_AUTH_TOKEN and CLOUDFLARE_ACCOUNT_ID set.",
-      media
-        ? `Example: ${OMNI_EXAMPLE}`
-        : `Example: ${PROGRAM} yesno "What is in this photo?" --image photo.jpg --provider cloudflare`,
+      "Pass --provider celeris, with CELERIS_API_KEY set. --explain and --max-soft-tokens are Celeris features.",
+      `Example: ${CELERIS_EXAMPLE}`,
+    ];
+  }
+  if (message.includes("only supported by the cloudflare provider")) {
+    if (media) {
+      return [
+        "Pass --provider cloudflare, with CLOUDFLARE_AUTH_TOKEN and CLOUDFLARE_ACCOUNT_ID set.",
+        `Example: ${OMNI_EXAMPLE}`,
+      ];
+    }
+    return [
+      "Pass --provider cloudflare (CLOUDFLARE_AUTH_TOKEN and CLOUDFLARE_ACCOUNT_ID) or --provider celeris (CELERIS_API_KEY).",
+      `Example: ${PROGRAM} yesno "What is in this photo?" --image photo.jpg --provider cloudflare`,
     ];
   }
   if (message.includes("only accepted by the clef-omni model")) {
@@ -395,8 +431,32 @@ function requestHints(message: string): string[] {
       `Example: ${OMNI_EXAMPLE}`,
     ];
   }
+  if (message.includes("not accepted by the celeris provider")) {
+    return [
+      "Celeris takes text and images. For audio or video, pass --provider cloudflare --model clef-omni.",
+      `Example: ${OMNI_EXAMPLE}`,
+    ];
+  }
+  if (message.includes("maxSoftTokens must be one of")) {
+    return ["--max-soft-tokens takes 70, 140, 280 (the default), 560, or 1120."];
+  }
+  if (message.includes("questions per request")) {
+    return [
+      "Celeris answers up to 512 questions per request, or 64 with --explain. Split the questions across requests.",
+    ];
+  }
   if (message.includes("request body is")) {
-    return ["Clef and Clef-flash accept a request body of at most 13 MiB, images included."];
+    return message.includes("celeris")
+      ? [CELERIS_IMAGE_LIMITS]
+      : ["Clef and Clef-flash accept a request body of at most 13 MiB, images included."];
+  }
+  // Celeris image messages name the provider or its narrower format list.
+  if (message.includes("celeris") || message.includes("PNG or JPEG")) {
+    return [
+      "Pass a local PNG or JPEG file. Remote URLs are not accepted.",
+      CELERIS_IMAGE_LIMITS,
+      `Example: ${PROGRAM} yesno "What is in this photo?" --image photo.jpg --provider celeris`,
+    ];
   }
   if (media) {
     return [
@@ -406,8 +466,9 @@ function requestHints(message: string): string[] {
     ];
   }
   return [
-    "Pass a local PNG, JPEG, or WebP file. Remote URLs are not accepted.",
+    "Pass a local PNG, JPEG, or WebP file (PNG or JPEG for Celeris). Remote URLs are not accepted.",
     "Clef allows 4 images: 4 MiB and 16 megapixels each, 8 MiB total, and a 13 MiB request body (clef and clef-flash).",
+    CELERIS_IMAGE_LIMITS,
     `Example: ${PROGRAM} yesno "What is in this photo?" --image photo.jpg`,
   ];
 }
@@ -433,13 +494,13 @@ interface Failure {
 }
 
 const BODY_PREVIEW_LENGTH = 500;
-const REQUEST_ID_HEADER = "x-typesafe-request-id";
 
-function describeFailure(error: DecisionModelError, policy: RetryPolicy): Failure {
+/** `requestIdHeader` is the provider's, compared case-insensitively. */
+function describeFailure(error: DecisionModelError, policy: RetryPolicy, requestIdHeader: string): Failure {
   if (error instanceof ApiError) {
     const body = error.body?.trim() ?? "";
     const requestId = Object.entries(error.headers).find(
-      ([key]) => key.toLowerCase() === REQUEST_ID_HEADER
+      ([key]) => key.toLowerCase() === requestIdHeader.toLowerCase()
     )?.[1];
     // The generic ApiError message already carries its status.
     const message = error.message.includes("(status")

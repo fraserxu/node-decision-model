@@ -13,7 +13,13 @@ import {
   UnprocessableEntity,
   DecisionModelError,
 } from "./errors.js";
-import { buildProvider, providerEnvVars, providerFromEnv, Provider } from "./providers/index.js";
+import {
+  buildProvider,
+  presentExtensions,
+  providerEnvVars,
+  providerFromEnv,
+  Provider,
+} from "./providers/index.js";
 import type { ProviderName } from "./providers/index.js";
 import type { ImageSource } from "./images.js";
 import { presentMedia, type AudioSource, type VideoSource } from "./media.js";
@@ -44,10 +50,10 @@ export type Transport = (args: {
 
 export interface ClientOptions {
   /**
-   * "open-router", "typesafe", "cloudflare", or a Provider instance. When
-   * omitted, apiKey alone selects OpenRouter; otherwise the environment
-   * decides (TYPESAFE_API_KEY, then OPENROUTER_API_KEY, then
-   * CLOUDFLARE_AUTH_TOKEN with CLOUDFLARE_ACCOUNT_ID).
+   * "open-router", "typesafe", "cloudflare", "celeris", or a Provider
+   * instance. When omitted, apiKey alone selects OpenRouter; otherwise the
+   * environment decides (TYPESAFE_API_KEY, then OPENROUTER_API_KEY, then
+   * CLOUDFLARE_AUTH_TOKEN with CLOUDFLARE_ACCOUNT_ID, then CELERIS_API_KEY).
    */
   provider?: ProviderName | Provider;
   /** Overrides the provider's environment variable. */
@@ -113,8 +119,9 @@ export class Client {
     state: unknown;
     questions: Qs;
     /**
-     * Images for Cloudflare Clef: a local path, PNG/JPEG/WebP bytes, or a
-     * base64 data URL. Other providers reject them. Remote URLs are not accepted.
+     * Images for Cloudflare Clef or Celeris: a local path, PNG/JPEG (WebP on
+     * Clef) bytes, or a base64 data URL. Other providers reject them. Remote
+     * URLs are not accepted.
      */
     images?: readonly ImageSource[];
     /**
@@ -127,13 +134,34 @@ export class Client {
      * a `data:video/...;base64,` URL. Other models and providers reject it.
      */
     videos?: readonly VideoSource[];
+    /**
+     * Celeris only: ask for a one-sentence reason per answer, returned as
+     * `response.explanations[id]` and `response.answers[id].explanation`.
+     * Celeris answers at most 64 questions per request when explaining.
+     * Other providers throw RequestError.
+     */
+    explain?: boolean;
+    /**
+     * Celeris only: the resolution every image in the request is read at,
+     * one of 70, 140, 280 (the default), 560, or 1120. Each image costs
+     * roughly that many input tokens; lower suits classification, higher
+     * OCR and small text. It has no effect without images. Other providers
+     * throw RequestError.
+     */
+    maxSoftTokens?: number;
   }): Promise<DecisionResponse<Qs>> {
     const { state, questions } = args;
     if (questions == null || Object.keys(questions).length === 0) {
       throw new RequestError("questions must not be empty");
     }
 
-    const body = this.provider.requestBody({ model: this.model, state, questions, ...presentMedia(args) });
+    const body = this.provider.requestBody({
+      model: this.model,
+      state,
+      questions,
+      ...presentMedia(args),
+      ...presentExtensions(args),
+    });
     const [status, responseBody, responseHeaders] = await this.performWithRetry({
       url: this.provider.urlFor(this.model),
       headers: this.provider.headers(),
@@ -268,19 +296,22 @@ export class Client {
       return this.parseSuccess(body, headers, questions);
     }
     const options = { status, body, headers };
+    // A provider with a documented error envelope adds what the body says.
+    const detail = this.provider.errorDetail(status, body);
+    const describe = (base: string): string => (detail === null ? base : `${base}: ${detail}`);
     switch (status) {
       case 401:
-        throw new Unauthorized("unauthorized", options);
+        throw new Unauthorized(describe("unauthorized"), options);
       case 413:
-        throw new PayloadTooLarge("payload too large", options);
+        throw new PayloadTooLarge(describe("payload too large"), options);
       case 422:
-        throw new UnprocessableEntity("unprocessable entity", options);
+        throw new UnprocessableEntity(describe("unprocessable entity"), options);
       case 429:
-        throw new RateLimited("rate limited", options);
+        throw new RateLimited(describe("rate limited"), options);
       case 529:
-        throw new Overloaded("overloaded", options);
+        throw new Overloaded(describe("overloaded"), options);
       default:
-        throw new ApiError(`api error (status ${status})`, options);
+        throw new ApiError(describe(`api error (status ${status})`), options);
     }
   }
 
@@ -358,6 +389,14 @@ export class Client {
       });
     }
 
+    // Each reason is attached to its answer as well, so a caller holding one
+    // answer does not have to go back to the response for it.
+    const explanations = this.provider.explanations(decision);
+    for (const [id, explanation] of Object.entries(explanations)) {
+      const answer = normalized[id];
+      if (answer !== undefined) normalized[id] = { ...answer, explanation };
+    }
+
     return new DecisionResponse<Qs>({
       answers: normalized as AnswersFor<Qs>,
       usage: this.provider.usage(decision),
@@ -365,6 +404,7 @@ export class Client {
       id: typeof parsedObject.id === "string" ? parsedObject.id : null,
       raw: parsed,
       requestId: this.requestIdFrom(headers),
+      explanations,
     });
   }
 

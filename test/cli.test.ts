@@ -263,8 +263,25 @@ describe("parseArgv", () => {
         images: [],
         audio: [],
         videos: [],
+        explain: false,
+        maxSoftTokens: undefined,
       },
     });
+  });
+
+  it("collects --explain and --max-soft-tokens", () => {
+    expect(parseArgv(["yesno", "Q?", "--explain", "--max-soft-tokens", "560", "--provider", "celeris"])).toMatchObject({
+      kind: "single",
+      options: { explain: true, maxSoftTokens: 560, provider: "celeris" },
+    });
+    expect(parseArgv(["ask", "s", "--noul", "q=Q?"])).toMatchObject({
+      kind: "ask",
+      options: { explain: false, maxSoftTokens: undefined },
+    });
+    expect(() => parseArgv(["ask", "s", "--max-soft-tokens", "many"])).toThrow(
+      /--max-soft-tokens expects a non-negative integer, got "many"/
+    );
+    expect(() => parseArgv(["ask", "s", "--explain", "yes"])).toThrow(/ask takes at most one state argument/);
   });
 
   it("collects repeatable --image, --audio, and --video paths", () => {
@@ -442,6 +459,18 @@ describe("formatHuman", () => {
     );
   });
 
+  it("prints an explanation on its own line under the answer, before the distribution", () => {
+    const explained = new DecisionResponse({
+      ...response,
+      raw: {},
+      explanations: { urgent: "It blocks checkout." },
+    });
+    expect(formatHuman(explained, base)).toBe("urgent  yes  50%\n        It blocks checkout.\n1.0s\n");
+    expect(formatHuman(explained, { ...base, verbose: true, showIds: false, provider: "celeris" })).toBe(
+      "yes  50%\n  It blocks checkout.\n  yes  50%\n  no   50%\nceleris · 1.0s\n"
+    );
+  });
+
   it("styles the answer, colours the confidence by size, and draws bars when enabled", () => {
     const style = createStyle(true);
     const styled = formatHuman(response, { ...base, style, verbose: true, showIds: false });
@@ -461,6 +490,7 @@ describe("run", () => {
     expect(help.out).toContain('yesno  "<question>"');
     expect(help.out).toContain("--image photo.jpg");
     expect(help.out).toContain("--audio clip.wav --video clip.mp4");
+    expect(help.out).toContain("--explain");
 
     const bare = new FakeIo();
     expect(await run([], bare)).toBe(2);
@@ -574,6 +604,7 @@ describe("run", () => {
       elapsedMs: 1234,
       usage: { inputTokens: 120, outputTokens: 9, cost: 0.0012 },
       answers,
+      explanations: {},
     });
   });
 
@@ -776,7 +807,7 @@ describe("run", () => {
   });
 
   it("prints the request with --dry-run and never calls the transport or needs a key", async () => {
-    await withEnv({ TYPESAFE_API_KEY: undefined, OPENROUTER_API_KEY: undefined, CLOUDFLARE_AUTH_TOKEN: undefined }, async () => {
+    await withEnv({ TYPESAFE_API_KEY: undefined, OPENROUTER_API_KEY: undefined, CLOUDFLARE_AUTH_TOKEN: undefined, CELERIS_API_KEY: undefined }, async () => {
       const transport = new FakeTransport([]);
       const io = new FakeIo();
       expect(await run(["choose", "Which?", "a", "b", "-s", "x", "--dry-run", "--model", "jev"], io)).toBe(0);
@@ -829,13 +860,13 @@ describe("run", () => {
   });
 
   it("explains a missing API key in CLI terms", async () => {
-    await withEnv({ TYPESAFE_API_KEY: undefined, OPENROUTER_API_KEY: undefined, CLOUDFLARE_AUTH_TOKEN: undefined }, async () => {
+    await withEnv({ TYPESAFE_API_KEY: undefined, OPENROUTER_API_KEY: undefined, CLOUDFLARE_AUTH_TOKEN: undefined, CELERIS_API_KEY: undefined }, async () => {
       const io = new FakeIo();
       expect(await run(["yesno", "Q?", "-s", "x"], io)).toBe(2);
       expect(io.err).toBe(
         [
           "decision-model: no API key found",
-          "  Set TYPESAFE_API_KEY or OPENROUTER_API_KEY or CLOUDFLARE_AUTH_TOKEN, or pass --provider with its key in the environment.",
+          "  Set TYPESAFE_API_KEY or OPENROUTER_API_KEY or CLOUDFLARE_AUTH_TOKEN or CELERIS_API_KEY, or pass --provider with its key in the environment.",
           "  Run 'decision-model providers' to see what is set.",
           "  Run 'decision-model help yesno' for usage.",
           "",
@@ -848,7 +879,7 @@ describe("run", () => {
 
       const unknown = new FakeIo();
       expect(await run(["ask", "s", ...questionFlags, "--provider", "acme"], unknown)).toBe(2);
-      expect(unknown.err).toMatch(/unknown provider "acme"; known providers: open-router, typesafe, cloudflare\n  Run 'decision-model providers' to list them\./);
+      expect(unknown.err).toMatch(/unknown provider "acme"; known providers: open-router, typesafe, cloudflare, celeris\n  Run 'decision-model providers' to list them\./);
 
       const json = new FakeIo();
       expect(await run(["yesno", "Q?", "-s", "x", "--json"], json)).toBe(2);
@@ -893,15 +924,16 @@ describe("run", () => {
   });
 
   it("lists providers, marking the one the environment selects", async () => {
-    await withEnv({ TYPESAFE_API_KEY: "t", OPENROUTER_API_KEY: undefined, CLOUDFLARE_AUTH_TOKEN: undefined }, async () => {
+    await withEnv({ TYPESAFE_API_KEY: "t", OPENROUTER_API_KEY: undefined, CLOUDFLARE_AUTH_TOKEN: undefined, CELERIS_API_KEY: undefined }, async () => {
       const io = new FakeIo();
       expect(await run(["providers"], io)).toBe(0);
       expect(io.out).toBe(
         [
-          "   NAME         ENV VAR                DEFAULT MODEL      API KEY",
-          "   open-router  OPENROUTER_API_KEY     typesafe/jev-1.13  not set",
-          "*  typesafe     TYPESAFE_API_KEY       jev-latest         set",
-          "   cloudflare   CLOUDFLARE_AUTH_TOKEN  clef               not set",
+          "   NAME         ENV VAR                DEFAULT MODEL       API KEY",
+          "   open-router  OPENROUTER_API_KEY     typesafe/jev-1.13   not set",
+          "*  typesafe     TYPESAFE_API_KEY       jev-latest          set",
+          "   cloudflare   CLOUDFLARE_AUTH_TOKEN  clef                not set",
+          "   celeris      CELERIS_API_KEY        celeris-1-decision  not set",
           "",
           "default: typesafe (TYPESAFE_API_KEY is set). Endpoints: decision-model providers -v",
           "",
@@ -918,10 +950,10 @@ describe("run", () => {
       expect(await run(["providers"], tty)).toBe(0);
       expect(tty.out).toContain("▸");
     });
-    await withEnv({ TYPESAFE_API_KEY: undefined, OPENROUTER_API_KEY: undefined, CLOUDFLARE_AUTH_TOKEN: undefined }, async () => {
+    await withEnv({ TYPESAFE_API_KEY: undefined, OPENROUTER_API_KEY: undefined, CLOUDFLARE_AUTH_TOKEN: undefined, CELERIS_API_KEY: undefined }, async () => {
       const io = new FakeIo();
       expect(await run(["providers"], io)).toBe(0);
-      expect(io.out).toContain("default: none. Set TYPESAFE_API_KEY or OPENROUTER_API_KEY or CLOUDFLARE_AUTH_TOKEN.");
+      expect(io.out).toContain("default: none. Set TYPESAFE_API_KEY or OPENROUTER_API_KEY or CLOUDFLARE_AUTH_TOKEN or CELERIS_API_KEY.");
     });
   });
 });

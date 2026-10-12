@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { parse as parsePath } from "node:path";
 import { RequestError } from "./errors.js";
 
 /** A local image path, raw PNG/JPEG/WebP bytes, or a base64 data URL. */
@@ -17,11 +18,32 @@ export const CLEF_MAX_PIXELS = 16_000_000;
 export const CLEF_MAX_DECODED_BYTES = 8 * 1024 * 1024;
 export const CLEF_MAX_BODY_BYTES = 13 * 1024 * 1024;
 
+/** Documented Celeris image limits: 8 PNG or JPEG images, 25 megapixels each, an 8 MiB request body. */
+export const CELERIS_MAX_IMAGES = 8;
+export const CELERIS_MAX_PIXELS = 25_000_000;
+export const CELERIS_MAX_BODY_BYTES = 8 * 1024 * 1024;
+/** Image names longer than this are cut; the name only has to tell the images apart. */
+export const CELERIS_MAX_IMAGE_NAME_LENGTH = 64;
+
 const PNG = "image/png";
 const JPEG = "image/jpeg";
 const WEBP = "image/webp";
 
 type MediaType = ClefWireImage["content_type"];
+
+/** The formats Clef takes: everything the sniffer knows. */
+const CLEF_FORMATS: readonly MediaType[] = [PNG, JPEG, WEBP];
+/** The formats Celeris documents. A WebP is sniffed and then refused by name. */
+const CELERIS_FORMATS: readonly MediaType[] = [PNG, JPEG];
+
+const FORMAT_NAMES: Readonly<Record<MediaType, string>> = { [PNG]: "PNG", [JPEG]: "JPEG", [WEBP]: "WebP" };
+
+/** "PNG, JPEG, or WebP" or "PNG or JPEG", for messages. */
+function describeFormats(formats: readonly MediaType[]): string {
+  const names = formats.map((format) => FORMAT_NAMES[format]);
+  if (names.length <= 2) return names.join(" or ");
+  return `${names.slice(0, -1).join(", ")}, or ${names[names.length - 1]}`;
+}
 
 const DATA_URL = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=\s]*)$/i;
 
@@ -63,6 +85,62 @@ export function encodeClefImages(sources: readonly ImageSource[]): ClefWireImage
   return encoded;
 }
 
+/**
+ * Turns local images into the Celeris `x_celeris.images` map: a name to a
+ * `data:image/...;base64,` URL. A file is named by its stem (`photo.jpg` is
+ * `photo`), bytes and data URLs by position (`image1`, `image2`, ...); the
+ * name keeps letters, digits, and underscores, turns every other run of
+ * characters into one underscore, and gets `_2`, `_3`, ... when it is already
+ * taken. Remote URLs and WebP are rejected. Limits are the documented ones:
+ * 8 images of PNG or JPEG, 25 megapixels each. The 8 MiB body cap is checked
+ * by the provider once the body is built.
+ */
+export function encodeCelerisImages(sources: readonly ImageSource[]): Record<string, string> {
+  if (sources.length > CELERIS_MAX_IMAGES) {
+    throw new RequestError(
+      `celeris accepts at most ${CELERIS_MAX_IMAGES} images per request, got ${sources.length}`
+    );
+  }
+
+  const named: Record<string, string> = {};
+  const used = new Set<string>();
+  for (let index = 0; index < sources.length; index += 1) {
+    const source = sources[index]!;
+    const { bytes, label, path } = loadImage(source, index, CELERIS_FORMATS);
+    const { contentType, width, height } = inspectImage(bytes, label, CELERIS_FORMATS);
+    const pixels = width * height;
+    if (pixels > CELERIS_MAX_PIXELS) {
+      throw new RequestError(
+        `${label} is ${width}×${height} (${pixels} pixels), over the celeris 25 megapixel limit`
+      );
+    }
+    const name = uniqueName(celerisImageName(path, index), used);
+    named[name] = `data:${contentType};base64,${Buffer.from(bytes).toString("base64")}`;
+  }
+  return named;
+}
+
+/**
+ * The name an image gets in the Celeris map before de-duplication: the file
+ * stem reduced to letters, digits, and underscores, or `image<n>` (1-based)
+ * when there is no file or nothing of the stem survives.
+ */
+export function celerisImageName(path: string | null, index: number): string {
+  const stem = path === null ? "" : parsePath(path).name;
+  const safe = stem
+    .replace(/[^A-Za-z0-9_]+/g, "_")
+    .slice(0, CELERIS_MAX_IMAGE_NAME_LENGTH)
+    .replace(/^_+|_+$/g, "");
+  return safe === "" ? `image${index + 1}` : safe;
+}
+
+function uniqueName(base: string, used: Set<string>): string {
+  let name = base;
+  for (let suffix = 2; used.has(name); suffix += 1) name = `${base}_${suffix}`;
+  used.add(name);
+  return name;
+}
+
 export interface ImageInfo {
   contentType: MediaType;
   width: number;
@@ -71,12 +149,17 @@ export interface ImageInfo {
 
 /**
  * The content type and pixel size of PNG, JPEG, or WebP bytes, read from the
- * headers without decoding the image. Throws RequestError for anything else.
+ * headers without decoding the image. Throws RequestError for anything else,
+ * and for a format outside `allowed` when that is narrower.
  */
-export function inspectImage(bytes: Uint8Array, label = "image"): ImageInfo {
+export function inspectImage(
+  bytes: Uint8Array,
+  label = "image",
+  allowed: readonly MediaType[] = CLEF_FORMATS
+): ImageInfo {
   const contentType = sniff(bytes);
-  if (contentType === null) {
-    throw new RequestError(`${label} must be a PNG, JPEG, or WebP image`);
+  if (contentType === null || !allowed.includes(contentType)) {
+    throw new RequestError(`${label} must be a ${describeFormats(allowed)} image`);
   }
   const { width, height } = dimensions(bytes, contentType, label);
   if (width < 1 || height < 1) {
@@ -93,24 +176,40 @@ export function assertClefBodySize(body: string): void {
   }
 }
 
-function loadImage(source: ImageSource, index: number): { bytes: Uint8Array; label: string } {
+/** The whole Celeris request body, images included, must stay within 8 MiB. */
+export function assertCelerisBodySize(body: string): void {
+  const bytes = Buffer.byteLength(body);
+  if (bytes > CELERIS_MAX_BODY_BYTES) {
+    throw new RequestError(`request body is ${bytes} bytes, over the celeris 8 MiB limit`);
+  }
+}
+
+/**
+ * The bytes of one image source with a label for messages, and the path when
+ * the source was a file. `allowed` names the formats a data URL may declare.
+ */
+export function loadImage(
+  source: ImageSource,
+  index: number,
+  allowed: readonly MediaType[] = CLEF_FORMATS
+): { bytes: Uint8Array; label: string; path: string | null } {
   if (typeof source !== "string") {
-    return { bytes: source, label: `image ${index + 1}` };
+    return { bytes: source, label: `image ${index + 1}`, path: null };
   }
 
   const trimmed = source.trim();
   if (trimmed.toLowerCase().startsWith("data:")) {
-    return { bytes: bytesFromDataUrl(trimmed, index), label: `image ${index + 1}` };
+    return { bytes: bytesFromDataUrl(trimmed, index, allowed), label: `image ${index + 1}`, path: null };
   }
   if (isRemoteUrl(trimmed)) {
     throw new RequestError(
-      `image ${index + 1}: remote URLs are not accepted; pass a local PNG, JPEG, or WebP file`
+      `image ${index + 1}: remote URLs are not accepted; pass a local ${describeFormats(allowed)} file`
     );
   }
 
   const label = JSON.stringify(source);
   try {
-    return { bytes: readFileSync(source), label };
+    return { bytes: readFileSync(source), label, path: source };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new RequestError(`${label}: could not read file: ${message}`);
@@ -124,18 +223,18 @@ function isRemoteUrl(value: string): boolean {
   return match[1]!.length > 1;
 }
 
-function bytesFromDataUrl(value: string, index: number): Uint8Array {
+function bytesFromDataUrl(value: string, index: number, allowed: readonly MediaType[]): Uint8Array {
   const match = DATA_URL.exec(value);
-  if (match === null) {
+  const declared = match === null ? null : (match[1]!.toLowerCase() as MediaType);
+  if (match === null || declared === null || !allowed.includes(declared)) {
     throw new RequestError(
-      `image ${index + 1}: data URLs must be base64 PNG, JPEG, or WebP (data:image/png;base64,...)`
+      `image ${index + 1}: data URLs must be base64 ${describeFormats(allowed)} (data:image/png;base64,...)`
     );
   }
-  const declared = match[1]!.toLowerCase() as MediaType;
   const bytes = Buffer.from(match[2]!.replace(/\s+/g, ""), "base64");
   const actual = sniff(bytes);
-  if (actual === null) {
-    throw new RequestError(`image ${index + 1}: data URL is not a PNG, JPEG, or WebP image`);
+  if (actual === null || !allowed.includes(actual)) {
+    throw new RequestError(`image ${index + 1}: data URL is not a ${describeFormats(allowed)} image`);
   }
   if (actual !== declared) {
     throw new RequestError(`image ${index + 1}: data URL says ${declared} but the bytes are ${actual}`);

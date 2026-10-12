@@ -30,6 +30,7 @@ const NO_ENV = {
   OPENROUTER_API_KEY: undefined,
   CLOUDFLARE_AUTH_TOKEN: undefined,
   CLOUDFLARE_ACCOUNT_ID: undefined,
+  CELERIS_API_KEY: undefined,
 };
 
 const questions = {

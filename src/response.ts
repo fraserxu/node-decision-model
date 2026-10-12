@@ -19,6 +19,11 @@ export class DecisionResponse<Qs extends Questions = Questions> {
   readonly raw: unknown;
   /** Typesafe's `x-typesafe-request-id` header; null on OpenRouter. */
   readonly requestId: string | null;
+  /**
+   * One sentence of reasoning per question id, from Celeris with `explain`.
+   * Empty otherwise. Each answer that has one also carries it as `explanation`.
+   */
+  readonly explanations: Readonly<Record<string, string>>;
 
   constructor(options: {
     answers: AnswersFor<Qs>;
@@ -27,6 +32,7 @@ export class DecisionResponse<Qs extends Questions = Questions> {
     id: string | null;
     raw: unknown;
     requestId?: string | null;
+    explanations?: Record<string, string>;
   }) {
     this.answers = options.answers;
     this.usage = options.usage;
@@ -34,6 +40,7 @@ export class DecisionResponse<Qs extends Questions = Questions> {
     this.id = options.id;
     this.raw = options.raw;
     this.requestId = options.requestId ?? null;
+    this.explanations = options.explanations ?? {};
   }
 
   /** The answer for one question id. */

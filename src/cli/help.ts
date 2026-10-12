@@ -16,8 +16,9 @@ Commands:
 
 The state comes from -s <text>, -f <path>, or stdin when it is piped. It is
 optional: with none, the model answers from what it already knows.
-Cloudflare Clef also reads a local photo: --image photo.jpg
+Cloudflare Clef and Celeris also read a local photo: --image photo.jpg
 Clef-omni (--model clef-omni) also listens and watches: --audio clip.wav --video clip.mp4
+Celeris (--provider celeris) also says why, one sentence per answer: --explain
 
 Examples:
   ${PROGRAM} choose "The toilet paper roll goes:" over under
@@ -31,7 +32,8 @@ Options:
 
 The provider is chosen from the environment: TYPESAFE_API_KEY selects
 Typesafe, otherwise OPENROUTER_API_KEY selects OpenRouter, otherwise
-CLOUDFLARE_AUTH_TOKEN with CLOUDFLARE_ACCOUNT_ID selects Cloudflare Clef.
+CLOUDFLARE_AUTH_TOKEN with CLOUDFLARE_ACCOUNT_ID selects Cloudflare Clef,
+otherwise CELERIS_API_KEY selects Celeris.
 `;
 
 const COMMON = `
@@ -44,11 +46,15 @@ State (optional; when none is given, stdin is read if it is piped):
   model answers from what it already knows.
   A state over about 100 KB must come from -f or stdin; the OS caps one argument.
 
-Images (Cloudflare Clef, Clef-flash, and Clef-omni; repeatable):
-  -i, --image <path>       A local PNG, JPEG, or WebP file, placed before the
-                           state. Up to 4. Remote URLs are not accepted.
-                           Limits: 4 MiB and 16 megapixels each, 8 MiB total,
-                           13 MiB for the whole request body on clef and clef-flash.
+Images (Cloudflare Clef models and Celeris; repeatable):
+  -i, --image <path>       A local image file, placed before the state. Remote
+                           URLs are not accepted.
+                           Clef: PNG, JPEG, or WebP; up to 4; 4 MiB and 16 megapixels
+                           each, 8 MiB total, 13 MiB for the whole request body
+                           on clef and clef-flash.
+                           Celeris: PNG or JPEG; up to 8; 25 megapixels each, 8 MiB
+                           for the whole request body. Each image is named by
+                           its file stem (photo.jpg is "photo"; _2, _3 on a repeat).
 
 Audio and video (Cloudflare Clef-omni only, --model clef-omni; repeatable):
       --audio <path>       A local WAV or MP3 file. Up to 4, each 8 MiB and
@@ -57,8 +63,20 @@ Audio and video (Cloudflare Clef-omni only, --model clef-omni; repeatable):
                            60 seconds, sampled at 2 frames per second.
   Audio and video together may be 16 MiB. Remote URLs are not accepted.
 
+Celeris (--provider celeris only):
+      --explain            Ask for a one-sentence reason, printed under each
+                           answer and returned as "explanations" in --json.
+                           Up to 64 questions per request with --explain,
+                           512 without.
+      --max-soft-tokens <n>
+                           The resolution each --image is read at: 70, 140,
+                           280 (the default), 560, or 1120. An image costs
+                           about that many input tokens; lower suits
+                           classification, higher OCR and small text. No
+                           effect without --image.
+
 Client:
-      --provider <name>    open-router, typesafe, or cloudflare. Default: from the environment
+      --provider <name>    open-router, typesafe, cloudflare, or celeris. Default: from the environment
       --model <name>       Model name or alias, e.g. clef-flash or clef-omni. Default: the provider default
       --base-url <url>     Override the provider base URL
       --timeout <ms>       Per-attempt timeout in milliseconds. Default: 5000
@@ -104,6 +122,7 @@ Examples:
   ${PROGRAM} yesno -q "Is this urgent?" -f issue.json                 # prints yes or no
   ${PROGRAM} yesno --check "Is this spam?" -s "$body" || deliver "$body"
   ${PROGRAM} yesno "Is the fan rattling?" --audio unit.wav --provider cloudflare --model clef-omni
+  ${PROGRAM} yesno "Is this urgent?" -f issue.json --explain --provider celeris   # prints the reason too
 `;
 
 const CHOOSE = `Usage: ${PROGRAM} choose "<question>" <label>... [options]
@@ -161,6 +180,10 @@ Examples:
     --choice noise="What does it sound like?|normal,rattle,grinding" \\
     --score fan="How steady is the fan?|wobbling,uneven,steady"
 
+  ${PROGRAM} ask -f issue.json --provider celeris --explain --image screenshot.png \\
+    --noul urgent="Is this urgent?" \\
+    --choice team="Which team owns this?|billing,auth,infra"
+
   ${PROGRAM} ask --input - --json <<'EOF'
   { "state": { "title": "500 on checkout" },
     "questions": { "urgent": { "type": "noul", "instructions": "Is this urgent?" } } }
@@ -201,9 +224,12 @@ JSON output, for --json:
       "severity": { "type": "score", "score": 2.99, "confidence": 0.99,
                     "probabilities": { "0": 0, "1": 0, "2": 0.01, "3": 0.99 },
                     "legend": { "0": "cosmetic", "1": "minor", "2": "major", "3": "critical" } }
-    }
+    },
+    "explanations": {}
   }
-  yesno, choose, and score use the id "answer".
+  yesno, choose, and score use the id "answer". With --explain on Celeris,
+  "explanations" maps each id to its sentence and every answer also carries
+  it as "explanation".
   A failure prints one line on stderr:
   { "error": { "type": "Unauthorized", "message": "...", "status": 401, "requestId": "...", "retryable": false } }
 
@@ -214,6 +240,9 @@ Dry run, for --dry-run:
   { "content_type": "image/jpeg", "base64": "..." }. With --audio and --video
   on clef-omni, request.audio and request.videos are arrays of data URLs:
   "data:audio/wav;base64,..." and "data:video/mp4;base64,...".
+  With the Celeris provider, --explain, --image, and --max-soft-tokens go in
+  request.x_celeris: { "explain": true, "images": { "photo": "data:image/jpeg;base64,..." },
+  "max_soft_tokens": 560 }. It is absent when none of them is given.
 `;
 
 const RULE = "\n————————————————————————————————————————————————————————————————————————\n\n";

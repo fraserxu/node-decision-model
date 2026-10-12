@@ -1,4 +1,4 @@
-import type { Answer, DecisionResponse, MediaInputs, Provider, Usage } from "../index.js";
+import type { Answer, DecisionResponse, MediaInputs, Provider, RequestExtensions, Usage } from "../index.js";
 import type { Style } from "./color.js";
 
 /**
@@ -121,7 +121,10 @@ export interface HumanOptions {
   elapsedMs: number;
 }
 
-/** One line per answer, distributions under each when verbose, then a dim footer. */
+/**
+ * One line per answer, its reason on the next line when Celeris explained
+ * it, distributions under each when verbose, then a dim footer.
+ */
 export function formatHuman(response: DecisionResponse, options: HumanOptions): string {
   const { style } = options;
   const answers = Object.entries(response.answers as Record<string, Answer>);
@@ -143,8 +146,10 @@ export function formatHuman(response: DecisionResponse, options: HumanOptions): 
   // Distribution rows sit under the answer column: past the id column and its gap.
   const indent = " ".repeat(options.showIds ? Math.max(...answers.map(([id]) => id.length)) + 2 : 2);
   const output: string[] = [];
-  headlines.forEach(([, line], index) => {
+  headlines.forEach(([id, line], index) => {
     output.push(lines[index]!);
+    const explanation = response.explanations[id];
+    if (explanation !== undefined) output.push(`${indent}${explanation}`);
     if (options.verbose) output.push(...distributionLines(line, indent, style));
   });
 
@@ -218,17 +223,22 @@ export function formatJson(
     elapsedMs: options.elapsedMs,
     usage: response.usage,
     answers: response.answers,
+    explanations: response.explanations,
   };
   return `${JSON.stringify(body, null, 2)}\n`;
 }
 
-/** `media` holds only the arrays that have something in them; see mediaOf in run.ts. */
+/**
+ * `media` holds only the arrays that have something in them and `extensions`
+ * only the Celeris options that were set; see mediaOf and extensionsOf in run.ts.
+ */
 export function formatDryRun(args: {
   provider: Provider;
   model: string;
   state: unknown;
   questions: unknown;
   media?: MediaInputs;
+  extensions?: RequestExtensions;
 }): string {
   const questions = args.questions as Parameters<Provider["requestBody"]>[0]["questions"];
   const body = {
@@ -236,7 +246,13 @@ export function formatDryRun(args: {
     model: args.model,
     url: args.provider.urlFor(args.model),
     request: JSON.parse(
-      args.provider.requestBody({ model: args.model, state: args.state, questions, ...args.media })
+      args.provider.requestBody({
+        model: args.model,
+        state: args.state,
+        questions,
+        ...args.media,
+        ...args.extensions,
+      })
     ) as unknown,
   };
   return `${JSON.stringify(body, null, 2)}\n`;

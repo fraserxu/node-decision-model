@@ -215,7 +215,7 @@ describe("Clef image encoding", () => {
         questions,
         images: [png()],
       })
-    ).toThrow(/images are only supported by the cloudflare provider, not open-router/);
+    ).toThrow(/images are only supported by the cloudflare provider or the celeris provider, not open-router/);
   });
 });
 
